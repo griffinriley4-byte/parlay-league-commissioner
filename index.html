@@ -3,7 +3,6 @@
 <head>
 <meta charset="UTF-8">
 <title>Riley Parlay Pick'em</title>
-<script src="https://cdn.jsdelivr.net/npm/chart.js@4.5.0/dist/chart.umd.js" integrity="sha384-iU8HYtnGQ8Cy4zl7gbNMOhsDTTKX02BTXptVP/vqAWIaTfM7isw76iyZCsjL2eVi" crossorigin="anonymous"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
 <script src="config.js"></script>
 <style>
@@ -345,7 +344,6 @@
   .stat-tile.neg .amt { color: var(--red); }
   .net-pos { color: var(--green-dark); font-weight: 700; }
   .net-neg { color: var(--red); font-weight: 700; }
-  .chart-wrap { height: 260px; margin-top: 10px; }
   details.howto summary { cursor: pointer; font-weight: 700; font-size: 13.5px; color: var(--green-dark); }
   details.howto p, details.howto ol { font-size: 13px; color: var(--sub); line-height: 1.6; }
   .field-row { display: grid; grid-template-columns: repeat(auto-fill, minmax(120px,1fr)); gap: 8px; align-items: end; }
@@ -1742,31 +1740,37 @@ function renderStats() {
   div.appendChild(table);
 
   if (data.weeks.length) {
-    const chartWrap = document.createElement('div');
-    chartWrap.className = 'chart-wrap';
-    const canvas = document.createElement('canvas');
-    chartWrap.appendChild(canvas);
-    div.appendChild(chartWrap);
-    setTimeout(() => {
-      new Chart(canvas.getContext('2d'), {
-        type: 'bar',
-        data: {
-          labels: stats.map(s => s.name),
-          datasets: [{
-            label: 'Net $',
-            data: stats.map(s => s.net),
-            backgroundColor: stats.map(s => s.net >= 0 ? '#0f7a3d' : '#b6402f'),
-            borderRadius: 6
-          }]
-        },
-        options: {
-          responsive: true,
-          maintainAspectRatio: false,
-          plugins: { legend: { display: false } },
-          scales: { y: { beginAtZero: true } }
-        }
-      });
-    }, 0);
+    const rankWrap = document.createElement('div');
+    rankWrap.style.marginTop = '22px';
+    const rankTitle = document.createElement('h2');
+    rankTitle.textContent = 'Power Rankings';
+    rankWrap.appendChild(rankTitle);
+    const rankHint = document.createElement('p');
+    rankHint.className = 'hint';
+    rankHint.textContent = 'Ranked by net $ — same order as the table above.';
+    rankWrap.appendChild(rankHint);
+    const rankList = document.createElement('ul');
+    rankList.className = 'order-list';
+    stats.forEach((s, idx) => {
+      const li = document.createElement('li');
+      const badge = document.createElement('div');
+      badge.className = 'rank-badge' + (idx === 0 ? ' gold' : '');
+      badge.textContent = idx + 1;
+      const name = document.createElement('div');
+      name.className = 'order-name';
+      name.textContent = s.name;
+      const record = document.createElement('div');
+      record.style.cssText = 'font-size:12.5px;color:var(--sub);margin-right:6px;';
+      record.textContent = s.wins + '-' + s.losses + (s.pushes ? '-' + s.pushes : '');
+      const net = document.createElement('div');
+      net.className = s.net > 0 ? 'net-pos' : (s.net < 0 ? 'net-neg' : '');
+      net.style.cssText = 'font-weight:700;font-size:13px;';
+      net.textContent = (s.net >= 0 ? '+' : '-') + '$' + Math.abs(s.net).toFixed(2);
+      li.appendChild(badge); li.appendChild(name); li.appendChild(record); li.appendChild(net);
+      rankList.appendChild(li);
+    });
+    rankWrap.appendChild(rankList);
+    div.appendChild(rankWrap);
   } else {
     const empty = document.createElement('p');
     empty.className = 'empty-state';
