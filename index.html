@@ -1,0 +1,1861 @@
+<!DOCTYPE html>
+<script type="application/json" id="cowork-artifact-meta">
+{
+  "name": "Parlay League Commissioner",
+  "schemaVersion": 1,
+  "description": "Commissioner dashboard for Griffin's 6-player weekly parlay pick'em league: manage roster, auto-generate picking order (winners-first from prior week), enter weekly spread/moneyline picks, auto-build a Parlay Watch Card, mark win/loss/push results, calculate the $60 pot payout (split among losers), and track season-long standings. All data persists in the browser (localStorage) — no external connectors needed."
+}
+</script>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Riley Parley Pick'em</title>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.5.0/dist/chart.umd.js" integrity="sha384-iU8HYtnGQ8Cy4zl7gbNMOhsDTTKX02BTXptVP/vqAWIaTfM7isw76iyZCsjL2eVi" crossorigin="anonymous"></script>
+<style>
+  :root {
+    color-scheme: light;
+    --green: #0f7a3d;
+    --green-dark: #0b5c2d;
+    --gold: #c9962c;
+    --gold-light: #f5e2b5;
+    --ink: #1c2420;
+    --sub: #5b665f;
+    --bg: #f6f7f4;
+    --card: #ffffff;
+    --line: #e3e6de;
+    --red: #b6402f;
+    --red-bg: #fbeceb;
+    --win-bg: #e9f6ee;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--ink);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+  }
+  .wrap { max-width: 980px; margin: 0 auto; padding: 24px 20px 60px; }
+  header.top {
+    background: linear-gradient(135deg, var(--green-dark), var(--green));
+    border-radius: 16px;
+    padding: 24px 28px;
+    color: #fff;
+    margin-bottom: 20px;
+    box-shadow: 0 6px 20px rgba(15,122,61,0.18);
+  }
+  header.top h1 { margin: 0 0 4px; font-size: 24px; letter-spacing: -0.3px; }
+  header.top p { margin: 0; opacity: 0.88; font-size: 13.5px; }
+  .badge-row { margin-top: 14px; display: flex; gap: 10px; flex-wrap: wrap; }
+  .badge {
+    background: rgba(255,255,255,0.16);
+    border: 1px solid rgba(255,255,255,0.28);
+    border-radius: 999px;
+    padding: 5px 12px;
+    font-size: 12px;
+    font-weight: 600;
+  }
+  nav.tabs {
+    display: flex;
+    gap: 6px;
+    flex-wrap: wrap;
+    margin-bottom: 18px;
+    border-bottom: 2px solid var(--line);
+    padding-bottom: 10px;
+  }
+  nav.tabs button {
+    border: 1px solid var(--line);
+    background: var(--card);
+    color: var(--sub);
+    padding: 7px 14px;
+    border-radius: 999px;
+    font-size: 13px;
+    font-weight: 600;
+    cursor: pointer;
+  }
+  nav.tabs button.active {
+    background: var(--green);
+    border-color: var(--green);
+    color: #fff;
+  }
+  nav.tabs button.add {
+    background: var(--gold-light);
+    border-color: var(--gold);
+    color: #6b4f0f;
+  }
+  select.week-select {
+    border: 1px solid var(--line);
+    background: var(--card);
+    color: var(--ink);
+    padding: 7px 12px;
+    border-radius: 999px;
+    font-size: 13px;
+    font-weight: 600;
+    cursor: pointer;
+    max-width: 220px;
+  }
+  .card {
+    background: var(--card);
+    border: 1px solid var(--line);
+    border-radius: 14px;
+    padding: 20px 22px;
+    margin-bottom: 18px;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.03);
+  }
+  .card h2 { margin: 0 0 4px; font-size: 16px; }
+  .card .hint { color: var(--sub); font-size: 12.5px; margin: 0 0 14px; }
+  .watch-card-header {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 12px;
+  }
+  .watch-card-header h2 { margin: 0 0 4px; }
+  .print-btn { flex-shrink: 0; white-space: nowrap; }
+  .roster-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(180px,1fr)); gap: 10px; }
+  .roster-grid label { font-size: 11px; color: var(--sub); font-weight: 600; display: block; margin-bottom: 4px; }
+  input[type=text], select {
+    width: 100%;
+    padding: 8px 10px;
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    font-size: 13.5px;
+    color: var(--ink);
+    background: #fff;
+  }
+  button.primary {
+    background: var(--green);
+    color: #fff;
+    border: none;
+    padding: 9px 16px;
+    border-radius: 8px;
+    font-weight: 600;
+    font-size: 13px;
+    cursor: pointer;
+    margin-top: 10px;
+  }
+  button.secondary {
+    background: #fff;
+    color: var(--green-dark);
+    border: 1px solid var(--green);
+    padding: 9px 16px;
+    border-radius: 8px;
+    font-weight: 600;
+    font-size: 13px;
+    cursor: pointer;
+    margin-top: 10px;
+  }
+  button.ghost {
+    background: transparent;
+    border: none;
+    color: var(--sub);
+    cursor: pointer;
+    font-size: 15px;
+    line-height: 1;
+    padding: 2px 6px;
+  }
+  .order-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
+  .order-list li {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    background: #fbfbf8;
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    padding: 10px 14px;
+  }
+  .rank-badge {
+    width: 26px; height: 26px;
+    border-radius: 50%;
+    background: var(--green);
+    color: #fff;
+    font-size: 12px;
+    font-weight: 700;
+    display: flex; align-items: center; justify-content: center;
+    flex-shrink: 0;
+  }
+  .rank-badge.gold { background: var(--gold); }
+  .order-name { flex: 1; font-weight: 600; font-size: 13.5px; }
+  .order-controls { display: flex; gap: 2px; }
+  table.picks-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  table.picks-table th {
+    text-align: left; font-size: 11px; text-transform: uppercase; letter-spacing: 0.4px;
+    color: var(--sub); border-bottom: 1px solid var(--line); padding: 6px 8px;
+  }
+  table.picks-table td { padding: 7px 8px; border-bottom: 1px solid var(--line); vertical-align: middle; }
+  .watch-card {
+    background: linear-gradient(165deg, #0c2118, #0b3a24 55%, #12492c);
+    border: 1px solid rgba(255,255,255,0.08);
+    border-radius: 18px;
+    padding: 26px 24px;
+    color: #fff;
+    box-shadow: 0 10px 30px rgba(6,30,18,0.35);
+  }
+  .ticket-top { display: flex; align-items: center; justify-content: space-between; }
+  .ticket-brand { font-size: 11px; font-weight: 800; letter-spacing: 1.8px; text-transform: uppercase; opacity: 0.65; }
+  .ticket-week {
+    background: rgba(255,255,255,0.14);
+    border: 1px solid rgba(255,255,255,0.22);
+    padding: 4px 12px;
+    border-radius: 999px;
+    font-size: 11px;
+    font-weight: 800;
+    letter-spacing: 0.6px;
+  }
+  .ticket-sub {
+    margin: 8px 0 18px;
+    font-size: 13.5px;
+    font-weight: 700;
+    color: var(--gold-light);
+    display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+  }
+  .ticket-divider {
+    height: 1px;
+    background: linear-gradient(to right, transparent, rgba(255,255,255,0.3), transparent);
+    margin: 0 0 18px;
+  }
+  .ticket-divider.dashed {
+    height: 0;
+    border-top: 1px dashed rgba(255,255,255,0.28);
+    background: none;
+    margin: 20px 0 16px;
+  }
+  .ticket-footer {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 4px;
+  }
+  .footer-stat {
+    text-align: center;
+    padding: 0 6px;
+    border-left: 1px solid rgba(255,255,255,0.14);
+  }
+  .footer-stat:first-child { border-left: none; }
+  .footer-stat .label {
+    display: block;
+    font-size: 9.5px;
+    font-weight: 800;
+    letter-spacing: 1.2px;
+    text-transform: uppercase;
+    opacity: 0.6;
+    margin-bottom: 5px;
+  }
+  .footer-stat .value {
+    display: block;
+    font-size: 15px;
+    font-weight: 800;
+    font-variant-numeric: tabular-nums;
+    letter-spacing: 0.2px;
+  }
+  .footer-stat.highlight .value { color: #f3d488; }
+  .slip { display: flex; flex-direction: column; gap: 10px; }
+  .slip-row {
+    background: rgba(255,255,255,0.07);
+    border: 1px solid rgba(255,255,255,0.14);
+    border-radius: 10px;
+    padding: 10px 14px;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+  }
+  .slip-rank {
+    width: 22px; height: 22px; border-radius: 50%;
+    background: var(--gold);
+    color: #402f08;
+    font-size: 11px; font-weight: 800;
+    display: flex; align-items: center; justify-content: center;
+    flex-shrink: 0;
+  }
+  .slip-body { flex: 1; min-width: 0; }
+  .slip-player { font-size: 12px; opacity: 0.75; font-weight: 600; }
+  .slip-pick { font-size: 14px; font-weight: 700; }
+  .slip-type {
+    font-size: 10.5px;
+    font-weight: 700;
+    text-transform: uppercase;
+    padding: 3px 8px;
+    border-radius: 999px;
+    background: rgba(255,255,255,0.14);
+    flex-shrink: 0;
+  }
+  .slip-empty { opacity: 0.55; font-size: 12.5px; font-style: italic; }
+  select.result-select { min-width: 100px; }
+  .result-win { color: var(--green-dark); font-weight: 700; }
+  .result-loss { color: var(--red); font-weight: 700; }
+  .result-push { color: var(--sub); font-weight: 700; }
+  .payout-box { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px,1fr)); gap: 10px; margin-top: 14px; }
+  .payout-tile { border-radius: 10px; padding: 12px 14px; font-size: 13px; }
+  .payout-tile.win { background: var(--win-bg); border: 1px solid #bfe6cd; }
+  .payout-tile.loss { background: var(--red-bg); border: 1px solid #f0c9c4; }
+  .payout-tile .name { font-weight: 700; margin-bottom: 2px; }
+  .payout-tile .amt { font-size: 12.5px; }
+  .payout-tile.editable { display: flex; flex-direction: column; }
+  .payout-tile.editable .tile-input {
+    margin-top: 4px;
+    border: 1px solid var(--gold);
+    border-radius: 6px;
+    padding: 6px 8px;
+    font-size: 14px;
+    font-weight: 700;
+    color: #6b4f0f;
+    background: #fff;
+    width: 100%;
+  }
+  .note {
+    background: var(--gold-light);
+    border: 1px solid var(--gold);
+    border-radius: 10px;
+    padding: 10px 14px;
+    font-size: 12.5px;
+    color: #6b4f0f;
+    margin-top: 12px;
+  }
+  .stats-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  .stats-table th { text-align: left; font-size: 11px; text-transform: uppercase; color: var(--sub); border-bottom: 1px solid var(--line); padding: 8px; }
+  .stats-table td { padding: 8px; border-bottom: 1px solid var(--line); }
+  .player-link {
+    background: none;
+    border: none;
+    padding: 0;
+    color: var(--green-dark);
+    font-weight: 700;
+    font-size: 13px;
+    cursor: pointer;
+    text-decoration: underline;
+    text-underline-offset: 2px;
+  }
+  .player-link:hover { color: var(--green); }
+  .back-link { margin-bottom: 4px; }
+  .player-title-row { margin-top: 8px; }
+  .player-title { font-size: 22px; margin: 4px 0 6px; }
+  .player-record { font-size: 14px; font-weight: 700; color: var(--sub); display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+  .streak-badge {
+    font-size: 11px;
+    font-weight: 800;
+    text-transform: uppercase;
+    letter-spacing: 0.4px;
+    padding: 4px 10px;
+    border-radius: 999px;
+    background: #eef0ec;
+    color: var(--sub);
+  }
+  .streak-badge.streak-win { background: var(--win-bg); color: var(--green-dark); }
+  .streak-badge.streak-loss { background: var(--red-bg); color: var(--red); }
+  .stat-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(160px,1fr)); gap: 10px; }
+  .stat-tile { background: #fbfbf8; border: 1px solid var(--line); border-radius: 10px; padding: 12px 14px; }
+  .stat-tile .name { font-size: 11px; font-weight: 700; color: var(--sub); text-transform: uppercase; letter-spacing: 0.3px; margin-bottom: 4px; }
+  .stat-tile .amt { font-size: 16px; font-weight: 800; color: var(--ink); }
+  .stat-tile.pos { background: var(--win-bg); border-color: #bfe6cd; }
+  .stat-tile.pos .amt { color: var(--green-dark); }
+  .stat-tile.neg { background: var(--red-bg); border-color: #f0c9c4; }
+  .stat-tile.neg .amt { color: var(--red); }
+  .net-pos { color: var(--green-dark); font-weight: 700; }
+  .net-neg { color: var(--red); font-weight: 700; }
+  .chart-wrap { height: 260px; margin-top: 10px; }
+  details.howto summary { cursor: pointer; font-weight: 700; font-size: 13.5px; color: var(--green-dark); }
+  details.howto p, details.howto ol { font-size: 13px; color: var(--sub); line-height: 1.6; }
+  .field-row { display: grid; grid-template-columns: repeat(auto-fill, minmax(120px,1fr)); gap: 8px; align-items: end; }
+  .field-row label { font-size: 10.5px; color: var(--sub); font-weight: 700; display: block; margin-bottom: 3px; }
+  .pick-entry { border: 1px solid var(--line); border-radius: 10px; padding: 12px; margin-bottom: 10px; background: #fbfbf8; }
+  .pick-entry .who { font-size: 12.5px; font-weight: 700; margin-bottom: 8px; display: flex; align-items: center; gap: 8px; }
+  .incomplete-tag {
+    display: inline-block;
+    font-size: 10px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.4px;
+    background: rgba(255,255,255,0.16);
+    padding: 3px 9px;
+    border-radius: 999px;
+  }
+  .matchup { display: flex; align-items: center; gap: 8px; margin: 6px 0 4px; flex-wrap: wrap; }
+  .team { display: flex; align-items: center; gap: 6px; padding: 3px 8px; border-radius: 8px; }
+  .team.picked { background: rgba(201,150,44,0.25); box-shadow: inset 0 0 0 1px rgba(201,150,44,0.6); }
+  .team .tname { font-size: 12.5px; font-weight: 600; }
+  .team.picked .tname { color: var(--gold); font-weight: 800; }
+  .logo {
+    width: 24px; height: 24px; border-radius: 50%;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 9px; font-weight: 800; color: #fff; flex-shrink: 0;
+  }
+  .at { opacity: 0.5; font-size: 11px; }
+  .game-meta { font-size: 11px; opacity: 0.75; margin-bottom: 4px; }
+  .empty-state { color: var(--sub); font-size: 13px; padding: 10px 0; }
+  .toolbar { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header class="top">
+    <h1>🏈 Riley Parley Pick'em — Commissioner Desk</h1>
+    <p>Griffin's 6-player college football regular-season pick league. Claude runs the desk: picking order, watch cards, and payouts.</p>
+    <div class="badge-row">
+      <span class="badge">College Football · Regular Season</span>
+      <span class="badge">6 Players</span>
+      <span class="badge">$60 Pot / Week</span>
+      <span class="badge">Losers Split the Pot</span>
+    </div>
+  </header>
+
+  <div class="card">
+    <details class="howto">
+      <summary>How this works (commissioner rules)</summary>
+      <ol>
+        <li><b>Roster</b> — set the 6 player names once, edit anytime.</li>
+        <li><b>Week 1</b> picking order is randomized. Every week after, order is: winners first (in their prior order), then losers (in their prior order).</li>
+        <li>Each player picks one spread or moneyline per week, entered in their slot.</li>
+        <li>The <b>Parlay Watch Card</b> auto-builds from the entered picks, in picking order.</li>
+        <li>After games finish, mark each player Win / Loss / Push. The pot is $60, <b>divided evenly among that week's losers</b> — that's what each loser owes. <b>Winners only get paid if it's a clean sweep</b> — every single pick wins that week — in which case the $60 pot splits evenly among everyone. Any other result (a mix of wins/losses, or an all-loss week), winners get nothing.</li>
+        <li><b>Season Stats</b> tracks cumulative record and running balance for every player.</li>
+      </ol>
+    </details>
+  </div>
+
+  <nav class="tabs" id="tabBar"></nav>
+  <div id="panels"></div>
+</div>
+
+<script>
+const STORE_KEY = 'parlayLeagueData_v1';
+
+// College football's regular season (Week 0/1 through the end of the regular slate,
+// before conference championships / bowls / CFP) runs about 15 weeks.
+const REGULAR_SEASON_WEEKS = 15;
+
+// Real Week 9, 2025 CFB slate (Sat Oct 25, 2025) — used only to seed a demo week so
+// Griffin can see the whole flow before the real season starts. Spreads/channels/times
+// and final scores are the actual results from that Saturday.
+function mockGames() {
+  // All legs use standard -110 spread juice (the weekParlaySummary default), so no odds override needed.
+  return [
+    { away: 'Texas A&M', home: 'LSU', gameTime: 'Sat 7:30 PM ET', tvChannel: 'ABC', type: 'spread', line: '-2.5', pickedSide: 'away', odds: '' },
+    { away: 'Ole Miss', home: 'Oklahoma', gameTime: 'Sat 12:00 PM ET', tvChannel: 'ABC', type: 'spread', line: '-5.5', pickedSide: 'home', odds: '' },
+    { away: 'Missouri', home: 'Vanderbilt', gameTime: 'Sat 3:30 PM ET', tvChannel: 'ESPN', type: 'spread', line: '-2.5', pickedSide: 'home', odds: '' },
+    { away: 'UCLA', home: 'Indiana', gameTime: 'Sat 12:00 PM ET', tvChannel: 'FOX', type: 'spread', line: '+26.5', pickedSide: 'away', odds: '' },
+    { away: 'Syracuse', home: 'Georgia Tech', gameTime: 'Sat 12:00 PM ET', tvChannel: 'ESPN', type: 'spread', line: '-16.5', pickedSide: 'home', odds: '' },
+    { away: 'Oklahoma State', home: 'Texas Tech', gameTime: 'Sat 3:30 PM ET', tvChannel: 'ESPNU', type: 'spread', line: '-37.5', pickedSide: 'home', odds: '' }
+  ];
+}
+// Actual ATS outcome of each pick above, based on real final scores that Saturday.
+const MOCK_RESULTS = ['win', 'loss', 'win', 'loss', 'win', 'win'];
+
+function shuffledIds(players) {
+  const ids = (players || data.players).map(p => p.id);
+  for (let i = ids.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [ids[i], ids[j]] = [ids[j], ids[i]];
+  }
+  return ids;
+}
+
+function loadData() {
+  const raw = localStorage.getItem(STORE_KEY);
+  let d = null;
+  if (raw) { try { d = JSON.parse(raw); } catch(e) {} }
+  if (!d) {
+    d = {
+      players: [1,2,3,4,5,6].map(n => ({ id: 'p'+n, name: 'Player '+n })),
+      weeks: [],
+      activeTab: 'roster'
+    };
+  }
+  // Ensure every regular-season week has a tab, without disturbing existing weeks.
+  for (let n = d.weeks.length + 1; n <= REGULAR_SEASON_WEEKS; n++) {
+    d.weeks.push({ num: n, order: null, picks: {}, results: {}, finalized: false, combinedOdds: '', toWin: '' });
+  }
+  // Trim trailing untouched weeks beyond the regular season (e.g. after shortening it) —
+  // never removes a week that already has an order, picks, or results.
+  while (d.weeks.length > REGULAR_SEASON_WEEKS) {
+    const last = d.weeks[d.weeks.length - 1];
+    const untouched = !last.order && Object.keys(last.picks || {}).length === 0 && Object.keys(last.results || {}).length === 0;
+    if (untouched) d.weeks.pop(); else break;
+  }
+  // Persist immediately so newly topped-up weeks survive a refresh even before the
+  // user makes any changes.
+  localStorage.setItem(STORE_KEY, JSON.stringify(d));
+  return d;
+}
+function saveData() { localStorage.setItem(STORE_KEY, JSON.stringify(data)); }
+
+let data = loadData();
+
+function playerName(id) {
+  const p = data.players.find(p => p.id === id);
+  return p ? p.name : id;
+}
+
+function addWeek() {
+  const n = data.weeks.length + 1;
+  data.weeks.push({
+    num: n,
+    order: null,
+    picks: {},
+    results: {},
+    finalized: false,
+    combinedOdds: '',
+    toWin: ''
+  });
+  data.activeTab = 'week-' + n;
+  saveData();
+  render();
+}
+
+function randomizeOrder(week) {
+  week.order = shuffledIds();
+  saveData();
+  render();
+}
+
+function loadMockWeek(week) {
+  if (!confirm('Load demo data into ' + tabLabel(week) + '? This overwrites any picks/results already entered for this week.')) return;
+  if (!week.order) week.order = shuffledIds();
+  const games = mockGames();
+  week.order.forEach((id, idx) => {
+    week.picks[id] = Object.assign({}, games[idx % games.length]);
+    week.results[id] = MOCK_RESULTS[idx % MOCK_RESULTS.length];
+  });
+  // Demo combined-parlay pricing (a real 6-leg -110 parlay on $60 prices out close to this).
+  week.combinedOdds = '+4741';
+  week.toWin = '2844.76';
+  saveData();
+  render();
+}
+
+function clearWeek(week) {
+  if (!confirm('Clear all data for ' + tabLabel(week) + '? This removes the order, picks, and results.')) return;
+  week.order = null;
+  week.picks = {};
+  week.results = {};
+  week.combinedOdds = '';
+  week.toWin = '';
+  saveData();
+  render();
+}
+
+function generateFromPrevious(week) {
+  const prev = data.weeks.find(w => w.num === week.num - 1);
+  if (!prev || !prev.order) return;
+  const winners = prev.order.filter(id => prev.results[id] === 'win');
+  const rest = prev.order.filter(id => prev.results[id] !== 'win');
+  week.order = [...winners, ...rest];
+  saveData();
+  render();
+}
+
+// Same winners-first-then-rest rule as generateFromPrevious, but read-only — used to
+// preview next week's order (e.g. on the results PDF) without writing anything.
+// Anyone without a result yet counts as "rest", same as a loss, until it's entered.
+function previewNextOrder(week) {
+  if (!week.order) return null;
+  const winners = week.order.filter(id => week.results[id] === 'win');
+  const rest = week.order.filter(id => week.results[id] !== 'win');
+  return [...winners, ...rest];
+}
+
+function moveInOrder(week, idx, dir) {
+  const newIdx = idx + dir;
+  if (newIdx < 0 || newIdx >= week.order.length) return;
+  [week.order[idx], week.order[newIdx]] = [week.order[newIdx], week.order[idx]];
+  saveData();
+  render();
+}
+
+const PICK_FIELDS = [
+  { key: 'away', label: 'Away Team', type: 'text', placeholder: 'e.g. Georgia' },
+  { key: 'home', label: 'Home Team', type: 'text', placeholder: 'e.g. Alabama' },
+  { key: 'gameTime', label: 'Game Time', type: 'text', placeholder: 'Sat 3:30 PM ET' },
+  { key: 'tvChannel', label: 'TV Channel', type: 'text', placeholder: 'ESPN' },
+  { key: 'type', label: 'Bet Type', type: 'select', options: [['spread','Spread'],['moneyline','Moneyline']] },
+  { key: 'line', label: 'Spread / Odds', type: 'text', placeholder: '-3.5' },
+  { key: 'pickedSide', label: 'Who Has It', type: 'select', options: [['away','Away Team'],['home','Home Team']] }
+];
+
+const WEEKLY_PARLAY_RISK = 60; // fixed $60/week — this is the whole group's pot, staked as one combined parlay.
+
+function blankPick() {
+  return { away: '', home: '', gameTime: '', tvChannel: '', type: 'spread', line: '', pickedSide: 'home' };
+}
+
+function setParlayField(week, field, value) {
+  week[field] = value;
+  saveData();
+}
+
+// Combined odds & to-win are typed in by hand (from the actual sportsbook parlay slip),
+// not derived from individual legs. Risk is always the fixed $60 weekly pot.
+function weekParlaySummary(week) {
+  const ids = week.order || [];
+  const legsEntered = ids.filter(id => hasGame(week.picks[id])).length;
+  const toWin = parseFloat(week.toWin);
+  const hasToWin = !isNaN(toWin) && toWin > 0;
+  const risk = WEEKLY_PARLAY_RISK;
+  return {
+    legsEntered,
+    totalLegs: ids.length,
+    complete: legsEntered === ids.length && ids.length > 0,
+    combinedOdds: (week.combinedOdds || '').trim(),
+    risk,
+    toWin: hasToWin ? toWin : null,
+    totalPayout: hasToWin ? risk + toWin : null
+  };
+}
+
+function setPickField(week, playerId, field, value) {
+  if (!week.picks[playerId]) week.picks[playerId] = blankPick();
+  week.picks[playerId][field] = value;
+  saveData();
+}
+
+function setResult(week, playerId, value) {
+  week.results[playerId] = value;
+  saveData();
+  render();
+}
+
+function calcPayouts(week) {
+  const ids = week.order || [];
+  const winners = ids.filter(id => week.results[id] === 'win');
+  const losers = ids.filter(id => week.results[id] === 'loss');
+  const pot = 60;
+  const owePerLoser = losers.length ? pot / losers.length : 0;
+  // Payout only happens on a clean sweep — every single leg wins that week. Any other
+  // outcome (a mix of wins/losses, or everyone losing) means winners get nothing;
+  // only losers ever pay in, and that money doesn't get redistributed.
+  const allWin = ids.length > 0 && losers.length === 0 && winners.length === ids.length;
+  const receivePerWinner = allWin ? pot / winners.length : 0;
+  return { winners, losers, owePerLoser, receivePerWinner, pot, allWin };
+}
+
+function hasGame(pick) { return !!(pick && (pick.away || pick.home)); }
+
+// Parses free-text game-time strings like "Sat 7:30 PM ET" into a sortable number.
+// College football weeks run Tue-Mon, so days are ranked Tue..Mon rather than the
+// calendar week; a missing day defaults to Saturday, and a missing/unparseable time
+// sorts to the end of that day. Games with no time info at all sort last of all.
+function gameTimeSortKey(gameTime) {
+  if (!gameTime) return Infinity;
+  const dayOrder = { tue: 0, wed: 1, thu: 2, fri: 3, sat: 4, sun: 5, mon: 6 };
+  const dayMatch = gameTime.match(/\b(sun|mon|tue|wed|thu|fri|sat)/i);
+  const dayRank = dayMatch && dayOrder[dayMatch[1].toLowerCase()] !== undefined
+    ? dayOrder[dayMatch[1].toLowerCase()] : 4;
+  const timeMatch = gameTime.match(/(\d{1,2}):(\d{2})\s*([AP]M)/i);
+  if (!timeMatch) return dayRank * 1440 + 1439;
+  let h = parseInt(timeMatch[1], 10) % 12;
+  const m = parseInt(timeMatch[2], 10);
+  if (/PM/i.test(timeMatch[3])) h += 12;
+  return dayRank * 1440 + (h * 60 + m);
+}
+
+// Re-sequences a week's picks into kickoff-time order for the Watch Card, while
+// keeping each pick's original draft-order index (draftIdx) so the pick-order badge
+// still reflects who actually picked first, second, etc. Picks with no game entered
+// yet, or no parseable time, sort to the end in their original draft order.
+function chronologicalPicks(week) {
+  return week.order.map((id, idx) => ({ id, draftIdx: idx, pick: week.picks[id] || {} }))
+    .sort((a, b) => {
+      const ka = hasGame(a.pick) ? gameTimeSortKey(a.pick.gameTime) : Infinity;
+      const kb = hasGame(b.pick) ? gameTimeSortKey(b.pick.gameTime) : Infinity;
+      if (ka !== kb) return ka - kb;
+      return a.draftIdx - b.draftIdx;
+    });
+}
+
+function formatMoney(n) {
+  return '$' + n.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+}
+
+// --- Minimal hand-rolled PDF writer (no external library available in this sandbox) ---
+// Builds a single-page PDF using only base-14 Helvetica fonts and vector rects/lines,
+// which is all the base PDF spec needs — no embedded fonts or images required.
+
+function pdfSanitize(str) {
+  return String(str == null ? '' : str)
+    .replace(/[–—]/g, '-')
+    .replace(/[‘’]/g, "'")
+    .replace(/[“”]/g, '"')
+    .replace(/→/g, '->')
+    .replace(/[^\x20-\x7E]/g, '?');
+}
+
+function pdfEscapeText(str) {
+  return pdfSanitize(str).replace(/\\/g, '\\\\').replace(/\(/g, '\\(').replace(/\)/g, '\\)');
+}
+
+// Rough average glyph-width heuristic for Helvetica — good enough for right/center
+// aligning short labels without embedding real font metrics.
+function pdfTextWidth(str, size, bold) {
+  return pdfSanitize(str).length * size * (bold ? 0.56 : 0.5);
+}
+
+function buildPdfBytes(contentStream, pageW, pageH) {
+  const objects = [
+    '<< /Type /Catalog /Pages 2 0 R >>',
+    '<< /Type /Pages /Kids [3 0 R] /Count 1 >>',
+    '<< /Type /Page /Parent 2 0 R /MediaBox [0 0 ' + pageW + ' ' + pageH + '] /Resources << /Font << /F1 5 0 R /F2 6 0 R >> >> /Contents 4 0 R >>',
+    '<< /Length ' + contentStream.length + ' >>\nstream\n' + contentStream + '\nendstream',
+    '<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>',
+    '<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Bold >>'
+  ];
+  let pdf = '%PDF-1.4\n';
+  const offsets = [0];
+  objects.forEach((obj, i) => {
+    offsets.push(pdf.length);
+    pdf += (i + 1) + ' 0 obj\n' + obj + '\nendobj\n';
+  });
+  const xrefStart = pdf.length;
+  pdf += 'xref\n0 ' + (objects.length + 1) + '\n0000000000 65535 f \n';
+  for (let i = 1; i <= objects.length; i++) {
+    pdf += String(offsets[i]).padStart(10, '0') + ' 00000 n \n';
+  }
+  pdf += 'trailer\n<< /Size ' + (objects.length + 1) + ' /Root 1 0 R >>\nstartxref\n' + xrefStart + '\n%%EOF';
+  return pdf;
+}
+
+function buildWatchCardPdf(week, ps) {
+  const pageW = 612, pageH = 792;
+  const margin = 50;
+  const contentW = pageW - margin * 2;
+  const ops = [];
+  const toPdfY = (topY) => pageH - topY;
+
+  const darkGreen = [0.047, 0.129, 0.094];
+  const gold = [0.55, 0.40, 0.08];
+  const cream = [0.85, 0.78, 0.55];
+  const gray = [0.42, 0.45, 0.43];
+  const lightGray = [0.85, 0.87, 0.85];
+  const black = [0.11, 0.14, 0.13];
+  const green = [0.08, 0.42, 0.22];
+  const white = [1, 1, 1];
+
+  function rect(x, topY, w, h, color) {
+    ops.push(color[0].toFixed(3) + ' ' + color[1].toFixed(3) + ' ' + color[2].toFixed(3) + ' rg');
+    ops.push(x.toFixed(2) + ' ' + toPdfY(topY + h).toFixed(2) + ' ' + w.toFixed(2) + ' ' + h.toFixed(2) + ' re f');
+  }
+
+  function line(x1, topY1, x2, topY2, color, width) {
+    ops.push((width || 1).toFixed(2) + ' w');
+    ops.push(color[0].toFixed(3) + ' ' + color[1].toFixed(3) + ' ' + color[2].toFixed(3) + ' RG');
+    ops.push(x1.toFixed(2) + ' ' + toPdfY(topY1).toFixed(2) + ' m ' + x2.toFixed(2) + ' ' + toPdfY(topY2).toFixed(2) + ' l S');
+  }
+
+  function text(x, topY, str, size, bold, color, align) {
+    const w = pdfTextWidth(str, size, bold);
+    let tx = x;
+    if (align === 'right') tx = x - w;
+    else if (align === 'center') tx = x - w / 2;
+    ops.push('BT');
+    ops.push('/' + (bold ? 'F2' : 'F1') + ' ' + size + ' Tf');
+    ops.push(color[0].toFixed(3) + ' ' + color[1].toFixed(3) + ' ' + color[2].toFixed(3) + ' rg');
+    ops.push(tx.toFixed(2) + ' ' + toPdfY(topY).toFixed(2) + ' Td');
+    ops.push('(' + pdfEscapeText(str) + ') Tj');
+    ops.push('ET');
+  }
+
+  // Header banner
+  rect(margin, 40, contentW, 60, darkGreen);
+  text(margin + 16, 40 + 24, "RILEY PARLEY PICK'EM", 11, true, white, 'left');
+  text(margin + contentW - 16, 40 + 24, 'WEEK ' + week.num, 12, true, white, 'right');
+  text(margin + 16, 40 + 44,
+    week.order.length + '-TEAM PARLAY' + (!ps.complete ? '  (' + ps.legsEntered + '/' + ps.totalLegs + ' LEGS IN)' : ''),
+    9, false, cream, 'left');
+
+  let y = 40 + 60 + 22;
+  line(margin, y, margin + contentW, y, lightGray, 1);
+  y += 16;
+
+  chronologicalPicks(week).forEach(({ draftIdx, id, pick }) => {
+    const rowTop = y;
+    rect(margin, rowTop, 18, 18, draftIdx === 0 ? gold : darkGreen);
+    text(margin + 9, rowTop + 13, String(draftIdx + 1), 10, true, white, 'center');
+    text(margin + 26, rowTop + 9, playerName(id), 9, true, gray, 'left');
+    if (hasGame(pick)) {
+      text(margin + 26, rowTop + 24, (pick.away || 'Away') + ' @ ' + (pick.home || 'Home'), 12, true, black, 'left');
+      text(margin + 26, rowTop + 36, (pick.gameTime || 'Time TBD') + (pick.tvChannel ? '  -  ' + pick.tvChannel : ''), 8.5, false, gray, 'left');
+      text(margin + 26, rowTop + 49, pickSummary(pick), 11, true, green, 'left');
+      text(margin + contentW - 2, rowTop + 24, (pick.type === 'moneyline' ? 'MONEYLINE' : 'SPREAD'), 8, true, gray, 'right');
+    } else {
+      text(margin + 26, rowTop + 24, 'No pick entered yet', 11, false, gray, 'left');
+    }
+    y = rowTop + 58;
+    line(margin, y - 6, margin + contentW, y - 6, [0.92, 0.93, 0.92], 0.6);
+  });
+
+  y += 6;
+  for (let dx = margin; dx < margin + contentW; dx += 8) {
+    line(dx, y, Math.min(dx + 4, margin + contentW), y, lightGray, 1);
+  }
+  y += 26;
+
+  const stats = [
+    { label: 'RISK', value: formatMoney(ps.risk), color: black },
+    { label: 'ODDS', value: ps.combinedOdds || '-', color: black },
+    { label: 'TO WIN', value: ps.toWin != null ? formatMoney(ps.toWin) : '-', color: gold },
+    { label: 'PAYOUT', value: ps.totalPayout != null ? formatMoney(ps.totalPayout) : '-', color: gold }
+  ];
+  const colW = contentW / 4;
+  stats.forEach((s, i) => {
+    const cx = margin + colW * i + colW / 2;
+    if (i > 0) line(margin + colW * i, y - 14, margin + colW * i, y + 16, lightGray, 1);
+    text(cx, y - 2, s.label, 8, true, gray, 'center');
+    text(cx, y + 16, s.value, 14, true, s.color, 'center');
+  });
+
+  y += 44;
+  text(margin, y, 'Generated by Cowork - Commissioner Desk', 7.5, false, lightGray, 'left');
+
+  return buildPdfBytes(ops.join('\n'), pageW, pageH);
+}
+
+// Greedily packs items (e.g. "1. Name") onto as few lines as fit maxWidth, joined
+// by joiner — a minimal text-wrap since this PDF writer has no native wrapping.
+function wrapItems(items, size, bold, maxWidth, joiner) {
+  const sep = joiner || '     ';
+  const lines = [];
+  let current = '';
+  items.forEach(item => {
+    const candidate = current ? current + sep + item : item;
+    if (current && pdfTextWidth(candidate, size, bold) > maxWidth) {
+      lines.push(current);
+      current = item;
+    } else {
+      current = candidate;
+    }
+  });
+  if (current) lines.push(current);
+  return lines;
+}
+
+function buildResultsPdf(week) {
+  const pageW = 612, pageH = 792;
+  const margin = 50;
+  const contentW = pageW - margin * 2;
+  const ops = [];
+  const toPdfY = (topY) => pageH - topY;
+
+  const darkGreen = [0.047, 0.129, 0.094];
+  const gold = [0.55, 0.40, 0.08];
+  const cream = [0.85, 0.78, 0.55];
+  const gray = [0.42, 0.45, 0.43];
+  const lightGray = [0.85, 0.87, 0.85];
+  const black = [0.11, 0.14, 0.13];
+  const green = [0.08, 0.42, 0.22];
+  const red = [0.714, 0.251, 0.184];
+  const white = [1, 1, 1];
+
+  function rect(x, topY, w, h, color) {
+    ops.push(color[0].toFixed(3) + ' ' + color[1].toFixed(3) + ' ' + color[2].toFixed(3) + ' rg');
+    ops.push(x.toFixed(2) + ' ' + toPdfY(topY + h).toFixed(2) + ' ' + w.toFixed(2) + ' ' + h.toFixed(2) + ' re f');
+  }
+
+  function line(x1, topY1, x2, topY2, color, width) {
+    ops.push((width || 1).toFixed(2) + ' w');
+    ops.push(color[0].toFixed(3) + ' ' + color[1].toFixed(3) + ' ' + color[2].toFixed(3) + ' RG');
+    ops.push(x1.toFixed(2) + ' ' + toPdfY(topY1).toFixed(2) + ' m ' + x2.toFixed(2) + ' ' + toPdfY(topY2).toFixed(2) + ' l S');
+  }
+
+  function text(x, topY, str, size, bold, color, align) {
+    const w = pdfTextWidth(str, size, bold);
+    let tx = x;
+    if (align === 'right') tx = x - w;
+    else if (align === 'center') tx = x - w / 2;
+    ops.push('BT');
+    ops.push('/' + (bold ? 'F2' : 'F1') + ' ' + size + ' Tf');
+    ops.push(color[0].toFixed(3) + ' ' + color[1].toFixed(3) + ' ' + color[2].toFixed(3) + ' rg');
+    ops.push(tx.toFixed(2) + ' ' + toPdfY(topY).toFixed(2) + ' Td');
+    ops.push('(' + pdfEscapeText(str) + ') Tj');
+    ops.push('ET');
+  }
+
+  const payouts = calcPayouts(week);
+  const order = week.order || [];
+
+  // Header banner
+  rect(margin, 40, contentW, 60, darkGreen);
+  text(margin + 16, 40 + 24, "RILEY PARLEY PICK'EM", 11, true, white, 'left');
+  text(margin + contentW - 16, 40 + 24, 'WEEK ' + week.num, 12, true, white, 'right');
+  text(margin + 16, 40 + 44, 'RESULTS & PAYOUTS', 9, false, cream, 'left');
+
+  let y = 40 + 60 + 22;
+  line(margin, y, margin + contentW, y, lightGray, 1);
+  y += 16;
+
+  order.forEach((id, idx) => {
+    const pick = week.picks[id] || {};
+    const result = week.results[id];
+    const rowTop = y;
+    rect(margin, rowTop, 18, 18, idx === 0 ? gold : darkGreen);
+    text(margin + 9, rowTop + 13, String(idx + 1), 10, true, white, 'center');
+    text(margin + 26, rowTop + 9, playerName(id), 10, true, black, 'left');
+    text(margin + 26, rowTop + 23, hasGame(pick) ? pickSummary(pick) : 'No pick entered', 9.5, false, gray, 'left');
+
+    let resultLabel = 'PENDING', resultColor = gray;
+    let payoutLabel = '—', payoutColor = gray;
+    if (result === 'win') {
+      resultLabel = 'WIN'; resultColor = green;
+      payoutLabel = payouts.allWin ? 'Receives ' + formatMoney(payouts.receivePerWinner) : 'No payout'; payoutColor = payouts.allWin ? green : gray;
+    } else if (result === 'loss') {
+      resultLabel = 'LOSS'; resultColor = red;
+      payoutLabel = 'Owes ' + formatMoney(payouts.owePerLoser); payoutColor = red;
+    } else if (result === 'push') {
+      resultLabel = 'PUSH';
+    }
+    text(margin + contentW - 160, rowTop + 14, resultLabel, 9, true, resultColor, 'left');
+    text(margin + contentW - 2, rowTop + 14, payoutLabel, 10, true, payoutColor, 'right');
+
+    y = rowTop + 34;
+    line(margin, y - 6, margin + contentW, y - 6, [0.92, 0.93, 0.92], 0.6);
+  });
+
+  y += 26;
+  const stats = [
+    { label: 'POT', value: formatMoney(payouts.pot), color: black },
+    { label: 'LOSERS', value: String(payouts.losers.length), color: black },
+    { label: 'OWED / LOSER', value: payouts.losers.length ? formatMoney(payouts.owePerLoser) : '-', color: red },
+    { label: 'PAID / WINNER', value: payouts.allWin ? formatMoney(payouts.receivePerWinner) : 'No payout', color: payouts.allWin ? green : gray }
+  ];
+  const colW = contentW / stats.length;
+  stats.forEach((s, i) => {
+    const cx = margin + colW * i + colW / 2;
+    if (i > 0) line(margin + colW * i, y - 14, margin + colW * i, y + 16, lightGray, 1);
+    text(cx, y - 2, s.label, 8, true, gray, 'center');
+    text(cx, y + 16, s.value, 14, true, s.color, 'center');
+  });
+
+  // Season records — pulled straight from seasonStats(), the same source the
+  // Season Stats tab reads, sorted by net the same way it is there.
+  y += 30;
+  line(margin, y, margin + contentW, y, lightGray, 1);
+  y += 20;
+  text(margin, y, 'SEASON RECORDS — THROUGH WEEK ' + week.num, 10, true, black, 'left');
+  y += 16;
+
+  const nameX = margin, wX = margin + contentW * 0.46, lX = margin + contentW * 0.58,
+        pX = margin + contentW * 0.68, netX = margin + contentW - 2;
+  text(nameX, y, 'PLAYER', 7.5, true, gray, 'left');
+  text(wX, y, 'W', 7.5, true, gray, 'center');
+  text(lX, y, 'L', 7.5, true, gray, 'center');
+  text(pX, y, 'P', 7.5, true, gray, 'center');
+  text(netX, y, 'NET', 7.5, true, gray, 'right');
+  y += 5;
+  line(margin, y, margin + contentW, y, [0.92, 0.93, 0.92], 0.6);
+  y += 13;
+
+  seasonStats().slice().sort((a, b) => b.net - a.net).forEach(s => {
+    text(nameX, y, s.name, 9.5, true, black, 'left');
+    text(wX, y, String(s.wins), 9.5, false, black, 'center');
+    text(lX, y, String(s.losses), 9.5, false, black, 'center');
+    text(pX, y, String(s.pushes), 9.5, false, black, 'center');
+    const netColor = s.net > 0 ? green : (s.net < 0 ? red : gray);
+    text(netX, y, (s.net >= 0 ? '+' : '-') + '$' + Math.abs(s.net).toFixed(2), 9.5, true, netColor, 'right');
+    y += 15;
+  });
+
+  // Next week's picking order — computed live with the same winners-first-then-rest
+  // rule generateFromPrevious() uses, not stored data (next week may not exist yet
+  // or may not have its order generated).
+  const nextNum = week.num + 1;
+  y += 22;
+  line(margin, y, margin + contentW, y, lightGray, 1);
+  y += 20;
+  if (nextNum <= REGULAR_SEASON_WEEKS) {
+    const allGraded = order.length > 0 && order.every(id => !!week.results[id]);
+    text(margin, y, 'WEEK ' + nextNum + ' PICKING ORDER' + (allGraded ? '' : ' (PREVIEW)'), 10, true, black, 'left');
+    y += 16;
+    const nextOrder = previewNextOrder(week) || [];
+    const items = nextOrder.map((id, i) => (i + 1) + '. ' + playerName(id));
+    wrapItems(items, 9.5, false, contentW, '     ').forEach(l => {
+      text(margin, y, l, 9.5, false, black, 'left');
+      y += 14;
+    });
+    if (!allGraded) {
+      y += 4;
+      text(margin, y, 'Based on results entered so far — may change once every pick is graded.', 7.5, false, gray, 'left');
+      y += 10;
+    }
+  } else {
+    text(margin, y, 'FINAL WEEK OF THE REGULAR SEASON', 9, true, gray, 'left');
+    y += 10;
+  }
+
+  y += 26;
+  text(margin, y, 'Generated by Cowork - Commissioner Desk', 7.5, false, lightGray, 'left');
+
+  return buildPdfBytes(ops.join('\n'), pageW, pageH);
+}
+
+// When this page is hosted in the Claude artifact viewer, offer the file through the
+// platform's downloads capability (the sandbox blocks a plain anchor-click download).
+// Anywhere else (a standalone saved file), window.claude doesn't exist, so fall back
+// to a Blob + object URL + anchor-click download.
+const downloadsCapability = (typeof window !== 'undefined' && window.claude && typeof window.claude.use === 'function')
+  ? window.claude.use('downloads').catch(() => null)
+  : Promise.resolve(null);
+
+async function savePdfFile(pdfStr, filename) {
+  const blob = new Blob([pdfStr], { type: 'application/pdf' });
+  const downloads = await downloadsCapability;
+  if (downloads) {
+    try {
+      await downloads.save({ filename, data: blob });
+      return;
+    } catch (e) {
+      if (e && e.code === 'declined') return;
+      // otherwise fall through to the direct-download fallback below
+    }
+  }
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+
+function downloadWatchCardPdf(week) {
+  const ps = weekParlaySummary(week);
+  const pdfStr = buildWatchCardPdf(week, ps);
+  savePdfFile(pdfStr, 'week-' + week.num + '-parlay-watch-card.pdf');
+}
+
+function downloadResultsPdf(week) {
+  const pdfStr = buildResultsPdf(week);
+  savePdfFile(pdfStr, 'week-' + week.num + '-results-payouts.pdf');
+}
+
+function teamAbbr(name) {
+  if (!name) return '—';
+  const words = name.trim().split(/\s+/);
+  if (words.length === 1) return words[0].slice(0, 3).toUpperCase();
+  return words.map(w => w[0]).join('').slice(0, 3).toUpperCase();
+}
+
+function teamColor(name) {
+  if (!name) return '#6b7a70';
+  let hash = 0;
+  for (let i = 0; i < name.length; i++) hash = name.charCodeAt(i) + ((hash << 5) - hash);
+  const hue = Math.abs(hash) % 360;
+  return 'hsl(' + hue + ', 60%, 42%)';
+}
+
+function pickedTeamName(pick) {
+  if (!hasGame(pick)) return '';
+  return pick.pickedSide === 'away' ? (pick.away || 'Away') : (pick.home || 'Home');
+}
+
+// FBS team -> conference, keyed by a normalized (lowercase, punctuation-stripped) team name.
+// Covers the Power 4 + the main Group of 5 leagues, independents, and the rebuilt Pac-12.
+// Anything not listed here (club nicknames, typos, FCS teams) falls back to "Other".
+const CONFERENCE_MAP = (() => {
+  const groups = {
+    'SEC': ['Alabama','Arkansas','Auburn','Florida','Georgia','Kentucky','LSU','Mississippi State','Missouri','Ole Miss','Oklahoma','South Carolina','Tennessee','Texas','Texas A&M','Vanderbilt'],
+    'Big Ten': ['Illinois','Indiana','Iowa','Maryland','Michigan','Michigan State','Minnesota','Nebraska','Northwestern','Ohio State','Oregon','Penn State','Purdue','Rutgers','UCLA','USC','Washington','Wisconsin'],
+    'ACC': ['Boston College','California','Clemson','Duke','Florida State','Georgia Tech','Louisville','Miami','NC State','North Carolina','Pitt','Pittsburgh','SMU','Stanford','Syracuse','Virginia','Virginia Tech','Wake Forest'],
+    'Big 12': ['Arizona','Arizona State','Baylor','BYU','Cincinnati','Colorado','Houston','Iowa State','Kansas','Kansas State','Oklahoma State','TCU','Texas Tech','UCF','Utah','West Virginia'],
+    'American': ['Army','Charlotte','East Carolina','FAU','Florida Atlantic','Memphis','Navy','North Texas','Rice','South Florida','USF','Temple','Tulane','Tulsa','UAB','UTSA'],
+    'Mountain West': ['Air Force','Colorado State','Hawaii','Nevada','New Mexico','San Jose State','UNLV','Utah State','Wyoming'],
+    'Pac-12': ['Oregon State','Washington State','Boise State','Fresno State','San Diego State'],
+    'Sun Belt': ['Appalachian State','Arkansas State','Coastal Carolina','Georgia Southern','Georgia State','James Madison','Louisiana','Louisiana Monroe','UL Monroe','Marshall','Old Dominion','South Alabama','Southern Miss','Texas State','Troy'],
+    'MAC': ['Akron','Ball State','Bowling Green','Buffalo','Central Michigan','Eastern Michigan','Kent State','Miami OH','Miami Ohio','Northern Illinois','Ohio','Toledo','Western Michigan'],
+    'Conference USA': ['Delaware','FIU','Jacksonville State','Kennesaw State','Liberty','Louisiana Tech','Middle Tennessee','Missouri State','New Mexico State','Sam Houston','UTEP','Western Kentucky'],
+    'Independent': ['Notre Dame','UConn','UMass']
+  };
+  const map = {};
+  Object.entries(groups).forEach(([conf, teams]) => {
+    teams.forEach(t => { map[normalizeTeam(t)] = conf; });
+  });
+  return map;
+})();
+
+function normalizeTeam(name) {
+  return String(name || '').trim().toLowerCase().replace(/[^a-z0-9 ]/g, '').replace(/\s+/g, ' ').trim();
+}
+
+function teamConference(name) {
+  return CONFERENCE_MAP[normalizeTeam(name)] || 'Other';
+}
+
+function pickSummary(pick) {
+  if (!hasGame(pick)) return '—';
+  return pickedTeamName(pick) + (pick.line ? ' ' + pick.line : '') + (pick.type === 'moneyline' ? ' (ML)' : '');
+}
+
+function matchupSummary(pick) {
+  if (!hasGame(pick)) return '—';
+  return (pick.away || 'Away') + ' @ ' + (pick.home || 'Home') + ' — ' + pickSummary(pick);
+}
+
+function seasonStats() {
+  const rows = {};
+  data.players.forEach(p => rows[p.id] = { id: p.id, name: p.name, wins: 0, losses: 0, pushes: 0, net: 0 });
+  data.weeks.forEach(w => {
+    if (!w.order) return;
+    const { winners, losers, owePerLoser, receivePerWinner } = calcPayouts(w);
+    w.order.forEach(id => {
+      const r = w.results[id];
+      if (r === 'win') { rows[id].wins++; rows[id].net += receivePerWinner; }
+      else if (r === 'loss') { rows[id].losses++; rows[id].net -= owePerLoser; }
+      else if (r === 'push') { rows[id].pushes++; }
+    });
+  });
+  return Object.values(rows);
+}
+
+// Deep-dive stats for a single player's page: record, money, conference/team leanings,
+// favorite-vs-underdog spread behavior, streaks, draft position, and full pick history.
+function computePlayerStats(playerId) {
+  const history = [];
+  data.weeks.forEach(w => {
+    if (!w.order || !w.order.includes(playerId)) return;
+    const pick = w.picks[playerId];
+    history.push({
+      weekNum: w.num,
+      pick: pick || null,
+      result: w.results[playerId] || null,
+      orderIndex: w.order.indexOf(playerId)
+    });
+  });
+  history.sort((a, b) => a.weekNum - b.weekNum);
+
+  let wins = 0, losses = 0, pushes = 0;
+  let moneyWon = 0, moneyPaid = 0;
+  const confStats = {}; // conf -> { picks, wins, losses, pushes, net }
+  const teamCounts = {};
+  const favSpreads = [], dogSpreads = [];
+  const favRecord = { w: 0, l: 0 }, dogRecord = { w: 0, l: 0 };
+  const draftPositions = [];
+  let firstPickCount = 0;
+
+  history.forEach(h => {
+    if (!hasGame(h.pick)) return; // no pick entered that week — skip from pick-based stats
+    if (h.result === 'win') wins++;
+    else if (h.result === 'loss') losses++;
+    else if (h.result === 'push') pushes++;
+
+    const week = data.weeks.find(w => w.num === h.weekNum);
+    const payouts = calcPayouts(week);
+    if (h.result === 'win') moneyWon += payouts.receivePerWinner;
+    else if (h.result === 'loss') moneyPaid += payouts.owePerLoser;
+
+    const team = pickedTeamName(h.pick);
+    if (team) {
+      teamCounts[team] = (teamCounts[team] || 0) + 1;
+      const conf = teamConference(team);
+      if (!confStats[conf]) confStats[conf] = { conf, picks: 0, wins: 0, losses: 0, pushes: 0, net: 0 };
+      const cs = confStats[conf];
+      cs.picks++;
+      if (h.result === 'win') { cs.wins++; cs.net += payouts.receivePerWinner; }
+      else if (h.result === 'loss') { cs.losses++; cs.net -= payouts.owePerLoser; }
+      else if (h.result === 'push') { cs.pushes++; }
+    }
+
+    if (h.pick.type !== 'moneyline') {
+      const lineVal = parseFloat(h.pick.line);
+      if (!isNaN(lineVal) && lineVal !== 0) {
+        if (lineVal < 0) {
+          favSpreads.push(lineVal);
+          if (h.result === 'win') favRecord.w++; else if (h.result === 'loss') favRecord.l++;
+        } else {
+          dogSpreads.push(lineVal);
+          if (h.result === 'win') dogRecord.w++; else if (h.result === 'loss') dogRecord.l++;
+        }
+      }
+    }
+
+    draftPositions.push(h.orderIndex + 1);
+    if (h.orderIndex === 0) firstPickCount++;
+  });
+
+  // Streaks (push breaks a streak without counting either way).
+  let longestWin = 0, longestLoss = 0, curWin = 0, curLoss = 0;
+  history.forEach(h => {
+    if (!hasGame(h.pick)) return;
+    if (h.result === 'win') { curWin++; curLoss = 0; longestWin = Math.max(longestWin, curWin); }
+    else if (h.result === 'loss') { curLoss++; curWin = 0; longestLoss = Math.max(longestLoss, curLoss); }
+    else { curWin = 0; curLoss = 0; }
+  });
+  let currentStreak = 0;
+  const played = history.filter(h => hasGame(h.pick));
+  for (let i = played.length - 1; i >= 0; i--) {
+    const r = played[i].result;
+    if (r === 'win') { if (currentStreak >= 0) currentStreak++; else break; }
+    else if (r === 'loss') { if (currentStreak <= 0) currentStreak--; else break; }
+    else break;
+  }
+
+  const avg = arr => arr.length ? arr.reduce((a, b) => a + b, 0) / arr.length : null;
+  const topEntry = obj => {
+    const entries = Object.entries(obj);
+    if (!entries.length) return null;
+    entries.sort((a, b) => b[1] - a[1]);
+    return { name: entries[0][0], count: entries[0][1] };
+  };
+
+  const confList = Object.values(confStats)
+    .map(c => Object.assign({}, c, {
+      winPct: (c.wins + c.losses) ? c.wins / (c.wins + c.losses) : null,
+      share: played.length ? c.picks / played.length : 0
+    }))
+    .sort((a, b) => b.picks - a.picks);
+
+  const bestConf = confList.filter(c => c.winPct != null).slice().sort((a, b) => b.winPct - a.winPct)[0] || null;
+  const worstConf = confList.filter(c => c.winPct != null).slice().sort((a, b) => a.winPct - b.winPct)[0] || null;
+
+  return {
+    history,
+    totalPicks: played.length,
+    wins, losses, pushes,
+    moneyWon, moneyPaid, net: moneyWon - moneyPaid,
+    confList, teamCounts,
+    avgFavSpread: avg(favSpreads), avgDogSpread: avg(dogSpreads),
+    favRecord, dogRecord,
+    currentStreak, longestWin, longestLoss,
+    avgDraftPosition: avg(draftPositions), firstPickCount,
+    mostPickedTeam: topEntry(teamCounts),
+    mostPickedConf: confList[0] ? { name: confList[0].conf, count: confList[0].picks } : null,
+    bestConf, worstConf
+  };
+}
+
+function tabLabel(w) { return 'Week ' + w.num; }
+
+function render() {
+  const tabBar = document.getElementById('tabBar');
+  const panels = document.getElementById('panels');
+  tabBar.innerHTML = '';
+
+  const fixedTabs = [
+    { id: 'roster', label: 'Roster' },
+    { id: 'stats', label: 'Season Stats' }
+  ];
+  fixedTabs.forEach(t => {
+    const btn = document.createElement('button');
+    btn.textContent = t.label;
+    const isActive = data.activeTab === t.id || (t.id === 'stats' && data.activeTab.startsWith('player-'));
+    btn.className = (isActive ? 'active' : '');
+    btn.onclick = () => { data.activeTab = t.id; saveData(); render(); };
+    tabBar.appendChild(btn);
+  });
+
+  const activeWeekNum = data.activeTab.startsWith('week-') ? Number(data.activeTab.slice(5)) : null;
+  const weekSelect = document.createElement('select');
+  weekSelect.className = 'week-select';
+  const placeholder = document.createElement('option');
+  placeholder.value = '';
+  placeholder.textContent = 'Jump to week…';
+  placeholder.disabled = true;
+  if (!activeWeekNum) placeholder.selected = true;
+  weekSelect.appendChild(placeholder);
+  data.weeks.forEach(w => {
+    const opt = document.createElement('option');
+    opt.value = w.num;
+    opt.textContent = tabLabel(w) + (w.order ? '' : ' (not started)');
+    if (activeWeekNum === w.num) opt.selected = true;
+    weekSelect.appendChild(opt);
+  });
+  weekSelect.onchange = (e) => { data.activeTab = 'week-' + e.target.value; saveData(); render(); };
+  tabBar.appendChild(weekSelect);
+
+  const addBtn = document.createElement('button');
+  addBtn.textContent = '+ New Week';
+  addBtn.className = 'add';
+  addBtn.onclick = addWeek;
+  tabBar.appendChild(addBtn);
+
+  panels.innerHTML = '';
+  if (data.activeTab === 'roster') panels.appendChild(renderRoster());
+  else if (data.activeTab === 'stats') panels.appendChild(renderStats());
+  else if (data.activeTab.startsWith('player-')) {
+    const playerId = data.activeTab.slice('player-'.length);
+    if (data.players.some(p => p.id === playerId)) panels.appendChild(renderPlayer(playerId));
+    else { data.activeTab = 'stats'; panels.appendChild(renderStats()); }
+  } else {
+    const w = data.weeks.find(w => 'week-' + w.num === data.activeTab);
+    if (w) panels.appendChild(renderWeek(w));
+  }
+}
+
+function renderRoster() {
+  const div = document.createElement('div');
+  div.className = 'card';
+  div.innerHTML = '<h2>Roster</h2><p class="hint">Names TBD until the season kicks off — edit anytime.</p>';
+  const grid = document.createElement('div');
+  grid.className = 'roster-grid';
+  data.players.forEach((p, i) => {
+    const wrap = document.createElement('div');
+    const label = document.createElement('label');
+    label.textContent = 'Player ' + (i + 1);
+    const input = document.createElement('input');
+    input.type = 'text';
+    input.value = p.name;
+    input.oninput = (e) => { p.name = e.target.value; saveData(); };
+    input.onblur = render;
+    wrap.appendChild(label);
+    wrap.appendChild(input);
+    grid.appendChild(wrap);
+  });
+  div.appendChild(grid);
+  return div;
+}
+
+function renderWeek(week) {
+  const container = document.createElement('div');
+
+  // Picking order card
+  const orderCard = document.createElement('div');
+  orderCard.className = 'card';
+  const prevExists = data.weeks.some(w => w.num === week.num - 1);
+  orderCard.innerHTML = '<h2>Picking Order — Week ' + week.num + '</h2>' +
+    '<p class="hint">' + (week.num === 1
+      ? 'Week 1 order is randomized.'
+      : 'Winners from Week ' + (week.num - 1) + ' pick first (in their prior order), then losers (in their prior order). Use the arrows to override for ties or pushes.') + '</p>';
+
+  const toolbar = document.createElement('div');
+  toolbar.className = 'toolbar';
+  if (week.num === 1) {
+    const btn = document.createElement('button');
+    btn.className = 'primary';
+    btn.textContent = week.order ? 'Re-randomize' : 'Randomize Order';
+    btn.onclick = () => randomizeOrder(week);
+    toolbar.appendChild(btn);
+  } else if (prevExists) {
+    const btn = document.createElement('button');
+    btn.className = 'primary';
+    btn.textContent = 'Generate from Week ' + (week.num - 1);
+    btn.onclick = () => generateFromPrevious(week);
+    toolbar.appendChild(btn);
+  } else {
+    const p = document.createElement('p');
+    p.className = 'empty-state';
+    p.textContent = 'Add Week ' + (week.num - 1) + ' results first, or set an order manually below.';
+    toolbar.appendChild(p);
+    const btn = document.createElement('button');
+    btn.className = 'secondary';
+    btn.textContent = 'Randomize Order';
+    btn.onclick = () => randomizeOrder(week);
+    toolbar.appendChild(btn);
+  }
+  const mockBtn = document.createElement('button');
+  mockBtn.className = 'secondary';
+  mockBtn.textContent = 'Load Mock Data (Demo)';
+  mockBtn.onclick = () => loadMockWeek(week);
+  toolbar.appendChild(mockBtn);
+  if (week.order) {
+    const clearBtn = document.createElement('button');
+    clearBtn.className = 'secondary';
+    clearBtn.textContent = 'Clear Week';
+    clearBtn.onclick = () => clearWeek(week);
+    toolbar.appendChild(clearBtn);
+  }
+  orderCard.appendChild(toolbar);
+
+  if (week.order) {
+    const ol = document.createElement('ul');
+    ol.className = 'order-list';
+    ol.style.marginTop = '14px';
+    week.order.forEach((id, idx) => {
+      const li = document.createElement('li');
+      const badge = document.createElement('div');
+      badge.className = 'rank-badge' + (idx === 0 ? ' gold' : '');
+      badge.textContent = idx + 1;
+      const name = document.createElement('div');
+      name.className = 'order-name';
+      name.textContent = playerName(id);
+      const controls = document.createElement('div');
+      controls.className = 'order-controls';
+      const up = document.createElement('button');
+      up.className = 'ghost'; up.textContent = '↑';
+      up.onclick = () => moveInOrder(week, idx, -1);
+      const down = document.createElement('button');
+      down.className = 'ghost'; down.textContent = '↓';
+      down.onclick = () => moveInOrder(week, idx, 1);
+      controls.appendChild(up); controls.appendChild(down);
+      li.appendChild(badge); li.appendChild(name); li.appendChild(controls);
+      ol.appendChild(li);
+    });
+    orderCard.appendChild(ol);
+  }
+  container.appendChild(orderCard);
+
+  // Picks entry card
+  if (week.order) {
+    const picksCard = document.createElement('div');
+    picksCard.className = 'card';
+    picksCard.innerHTML = '<h2>Weekly Picks</h2><p class="hint">Enter each player\'s game and spread/moneyline pick, in picking order.</p>';
+    week.order.forEach((id, idx) => {
+      const pick = week.picks[id] || blankPick();
+      const entry = document.createElement('div');
+      entry.className = 'pick-entry';
+      const who = document.createElement('div');
+      who.className = 'who';
+      who.innerHTML = '<span class="rank-badge' + (idx === 0 ? ' gold' : '') + '" style="width:20px;height:20px;font-size:10.5px;">' + (idx+1) + '</span> ' + playerName(id);
+      entry.appendChild(who);
+
+      const row = document.createElement('div');
+      row.className = 'field-row';
+      PICK_FIELDS.forEach(field => {
+        const cell = document.createElement('div');
+        const label = document.createElement('label');
+        label.textContent = field.label;
+        cell.appendChild(label);
+        if (field.type === 'select') {
+          const sel = document.createElement('select');
+          field.options.forEach(([v, optLabel]) => {
+            const opt = document.createElement('option');
+            opt.value = v; opt.textContent = optLabel;
+            if ((pick[field.key] || field.options[0][0]) === v) opt.selected = true;
+            sel.appendChild(opt);
+          });
+          sel.onchange = (e) => { setPickField(week, id, field.key, e.target.value); render(); };
+          cell.appendChild(sel);
+        } else {
+          const inp = document.createElement('input');
+          inp.type = 'text';
+          inp.placeholder = field.placeholder || '';
+          inp.value = pick[field.key] || '';
+          inp.oninput = (e) => setPickField(week, id, field.key, e.target.value);
+          inp.onblur = render;
+          cell.appendChild(inp);
+        }
+        row.appendChild(cell);
+      });
+      entry.appendChild(row);
+      picksCard.appendChild(entry);
+    });
+    container.appendChild(picksCard);
+
+    // Weekly parlay bet summary — all picks combined into one $60 parlay.
+    const parlayCard = document.createElement('div');
+    parlayCard.className = 'card';
+    const ps = weekParlaySummary(week);
+    parlayCard.innerHTML = '<h2>Parlay Bet Summary</h2><p class="hint">Type in the combined odds and payout from the actual sportsbook slip for all ' + ps.totalLegs + ' picks staked together. Risk is fixed at the $' + ps.risk.toFixed(2) + ' weekly pot.</p>';
+    const psGrid = document.createElement('div');
+    psGrid.className = 'payout-box';
+
+    const riskTile = document.createElement('div');
+    riskTile.className = 'payout-tile';
+    riskTile.innerHTML = '<div class="name">Risk</div><div class="amt">' + formatMoney(ps.risk) + '</div>';
+    psGrid.appendChild(riskTile);
+
+    const oddsTile = document.createElement('div');
+    oddsTile.className = 'payout-tile editable';
+    oddsTile.innerHTML = '<div class="name">Combined Odds</div>';
+    const oddsInput = document.createElement('input');
+    oddsInput.type = 'text';
+    oddsInput.className = 'tile-input';
+    oddsInput.placeholder = '+4741';
+    oddsInput.value = week.combinedOdds || '';
+    oddsInput.oninput = (e) => setParlayField(week, 'combinedOdds', e.target.value);
+    oddsInput.onblur = render;
+    oddsTile.appendChild(oddsInput);
+    psGrid.appendChild(oddsTile);
+
+    const toWinTile = document.createElement('div');
+    toWinTile.className = 'payout-tile win editable';
+    toWinTile.innerHTML = '<div class="name">To Win ($)</div>';
+    const toWinInput = document.createElement('input');
+    toWinInput.type = 'text';
+    toWinInput.className = 'tile-input';
+    toWinInput.placeholder = '2844.76';
+    toWinInput.value = week.toWin || '';
+    toWinInput.oninput = (e) => setParlayField(week, 'toWin', e.target.value);
+    toWinInput.onblur = render;
+    toWinTile.appendChild(toWinInput);
+    psGrid.appendChild(toWinTile);
+
+    const totalTile = document.createElement('div');
+    totalTile.className = 'payout-tile win';
+    totalTile.innerHTML = '<div class="name">Total Payout</div><div class="amt">' + (ps.totalPayout != null ? formatMoney(ps.totalPayout) : '—') + '</div>';
+    psGrid.appendChild(totalTile);
+
+    parlayCard.appendChild(psGrid);
+    if (!ps.complete) {
+      const note = document.createElement('div');
+      note.className = 'note';
+      note.textContent = 'Only ' + ps.legsEntered + ' of ' + ps.totalLegs + ' picks entered so far.';
+      parlayCard.appendChild(note);
+    }
+    container.appendChild(parlayCard);
+
+    // Watch card — styled like a sportsbook ticket.
+    const watchWrap = document.createElement('div');
+    watchWrap.className = 'card';
+    const watchHeader = document.createElement('div');
+    watchHeader.className = 'watch-card-header';
+    watchHeader.innerHTML = '<div><h2>Parlay Watch Card</h2><p class="hint">Auto-generated from this week\'s picks and bet summary.</p></div>';
+    const downloadBtn = document.createElement('button');
+    downloadBtn.className = 'secondary print-btn';
+    downloadBtn.textContent = '⬇ Download PDF';
+    downloadBtn.onclick = () => downloadWatchCardPdf(week);
+    watchHeader.appendChild(downloadBtn);
+    watchWrap.appendChild(watchHeader);
+    const wc = document.createElement('div');
+    wc.className = 'watch-card';
+    wc.innerHTML =
+      '<div class="ticket-top">' +
+        '<div class="ticket-brand">RILEY PARLEY PICK\'EM</div>' +
+        '<div class="ticket-week">WEEK ' + week.num + '</div>' +
+      '</div>' +
+      '<div class="ticket-sub">' + week.order.length + '-Team Parlay' + (!ps.complete ? ' <span class="incomplete-tag">' + ps.legsEntered + '/' + ps.totalLegs + ' LEGS IN</span>' : '') + '</div>' +
+      '<div class="ticket-divider"></div>';
+    const slip = document.createElement('div');
+    slip.className = 'slip';
+    chronologicalPicks(week).forEach(({ id, draftIdx, pick }) => {
+      const row = document.createElement('div');
+      row.className = 'slip-row';
+      if (!hasGame(pick)) {
+        row.innerHTML = '<div class="slip-rank">' + (draftIdx+1) + '</div><div class="slip-body"><div class="slip-player">' + playerName(id) + '</div><div class="slip-empty">No pick entered yet</div></div>';
+      } else {
+        const away = pick.away || 'Away';
+        const home = pick.home || 'Home';
+        const pickedAway = pick.pickedSide === 'away';
+        row.innerHTML = '<div class="slip-rank">' + (draftIdx+1) + '</div>' +
+          '<div class="slip-body">' +
+            '<div class="slip-player">' + playerName(id) + '</div>' +
+            '<div class="matchup">' +
+              '<div class="team' + (pickedAway ? ' picked' : '') + '"><span class="logo" style="background:' + teamColor(away) + '">' + teamAbbr(away) + '</span><span class="tname">' + away + '</span></div>' +
+              '<span class="at">@</span>' +
+              '<div class="team' + (!pickedAway ? ' picked' : '') + '"><span class="logo" style="background:' + teamColor(home) + '">' + teamAbbr(home) + '</span><span class="tname">' + home + '</span></div>' +
+            '</div>' +
+            '<div class="game-meta">' + (pick.gameTime || 'Time TBD') + (pick.tvChannel ? ' · ' + pick.tvChannel : '') + '</div>' +
+            '<div class="slip-pick">' + pickSummary(pick) + '</div>' +
+          '</div>' +
+          '<div class="slip-type">' + (pick.type === 'moneyline' ? 'Moneyline' : 'Spread') + '</div>';
+      }
+      slip.appendChild(row);
+    });
+    wc.appendChild(slip);
+
+    const ticketDivider2 = document.createElement('div');
+    ticketDivider2.className = 'ticket-divider dashed';
+    wc.appendChild(ticketDivider2);
+
+    const footer = document.createElement('div');
+    footer.className = 'ticket-footer';
+    const footerStats = [
+      { label: 'Risk', value: formatMoney(ps.risk) },
+      { label: 'Odds', value: ps.combinedOdds || '—' },
+      { label: 'To Win', value: ps.toWin != null ? formatMoney(ps.toWin) : '—', highlight: true },
+      { label: 'Payout', value: ps.totalPayout != null ? formatMoney(ps.totalPayout) : '—', highlight: true }
+    ];
+    footerStats.forEach(s => {
+      const stat = document.createElement('div');
+      stat.className = 'footer-stat' + (s.highlight ? ' highlight' : '');
+      stat.innerHTML = '<span class="label">' + s.label + '</span><span class="value">' + s.value + '</span>';
+      footer.appendChild(stat);
+    });
+    wc.appendChild(footer);
+
+    watchWrap.appendChild(wc);
+    container.appendChild(watchWrap);
+
+    // Results & payouts
+    const resCard = document.createElement('div');
+    resCard.className = 'card';
+    const resHeader = document.createElement('div');
+    resHeader.className = 'watch-card-header';
+    resHeader.innerHTML = '<div><h2>Results &amp; Payouts</h2><p class="hint">Mark each pick after games finish. Losers split the $60 pot evenly. Winners only get paid on a clean sweep — everyone winning — in which case the pot splits evenly among everyone.</p></div>';
+    const resDownloadBtn = document.createElement('button');
+    resDownloadBtn.className = 'secondary print-btn';
+    resDownloadBtn.textContent = '⬇ Download PDF';
+    resDownloadBtn.onclick = () => downloadResultsPdf(week);
+    resHeader.appendChild(resDownloadBtn);
+    resCard.appendChild(resHeader);
+    const table = document.createElement('table');
+    table.className = 'picks-table';
+    table.innerHTML = '<thead><tr><th>Player</th><th>Pick</th><th>Result</th></tr></thead>';
+    const tbody = document.createElement('tbody');
+    week.order.forEach(id => {
+      const pick = week.picks[id] || {};
+      const tr = document.createElement('tr');
+      const tdName = document.createElement('td');
+      tdName.textContent = playerName(id);
+      const tdPick = document.createElement('td');
+      tdPick.textContent = matchupSummary(pick);
+      const tdRes = document.createElement('td');
+      const sel = document.createElement('select');
+      sel.className = 'result-select';
+      [['pending','—'], ['win','Win'], ['loss','Loss'], ['push','Push']].forEach(([v,label]) => {
+        const opt = document.createElement('option');
+        opt.value = v; opt.textContent = label;
+        if ((week.results[id] || 'pending') === v) opt.selected = true;
+        sel.appendChild(opt);
+      });
+      sel.onchange = (e) => setResult(week, id, e.target.value);
+      tdRes.appendChild(sel);
+      tr.appendChild(tdName); tr.appendChild(tdPick); tr.appendChild(tdRes);
+      tbody.appendChild(tr);
+    });
+    table.appendChild(tbody);
+    resCard.appendChild(table);
+
+    const { winners, losers, owePerLoser, receivePerWinner, pot, allWin } = calcPayouts(week);
+    const anyResults = week.order.some(id => week.results[id]);
+    if (anyResults) {
+      const box = document.createElement('div');
+      box.className = 'payout-box';
+      week.order.forEach(id => {
+        const r = week.results[id];
+        if (r === 'win') {
+          const tile = document.createElement('div');
+          tile.className = 'payout-tile' + (allWin ? ' win' : '');
+          tile.innerHTML = '<div class="name">' + playerName(id) + '</div><div class="amt">' +
+            (allWin ? 'Receives $' + receivePerWinner.toFixed(2) : 'No payout') + '</div>';
+          box.appendChild(tile);
+        } else if (r === 'loss') {
+          const tile = document.createElement('div');
+          tile.className = 'payout-tile loss';
+          tile.innerHTML = '<div class="name">' + playerName(id) + '</div><div class="amt">Owes $' + owePerLoser.toFixed(2) + '</div>';
+          box.appendChild(tile);
+        }
+      });
+      resCard.appendChild(box);
+
+      if (allWin) {
+        const note = document.createElement('div');
+        note.className = 'note';
+        note.textContent = 'Clean sweep — everyone won! The $60 pot splits evenly among all ' + winners.length + ' players.';
+        resCard.appendChild(note);
+      } else if (losers.length && winners.length) {
+        const note = document.createElement('div');
+        note.className = 'note';
+        note.textContent = 'Not a clean sweep — winners don\'t get paid this week. Only losers pay into the pot.';
+        resCard.appendChild(note);
+      } else if (!losers.length) {
+        const note = document.createElement('div');
+        note.className = 'note';
+        note.textContent = 'No losers yet — nothing owed. If every pick ends up winning, the pot splits evenly among everyone.';
+        resCard.appendChild(note);
+      }
+    }
+    container.appendChild(resCard);
+  }
+
+  return container;
+}
+
+function renderStats() {
+  const div = document.createElement('div');
+  div.className = 'card';
+  div.innerHTML = '<h2>Season Stats</h2><p class="hint">Cumulative record and running balance across all weeks. Click a player for their full stats page.</p>';
+  const stats = seasonStats();
+  const table = document.createElement('table');
+  table.className = 'stats-table';
+  table.innerHTML = '<thead><tr><th>Player</th><th>W</th><th>L</th><th>P</th><th>Net $</th></tr></thead>';
+  const tbody = document.createElement('tbody');
+  stats.sort((a,b) => b.net - a.net).forEach(s => {
+    const tr = document.createElement('tr');
+    const netClass = s.net > 0 ? 'net-pos' : (s.net < 0 ? 'net-neg' : '');
+    const tdName = document.createElement('td');
+    const nameLink = document.createElement('button');
+    nameLink.className = 'player-link';
+    nameLink.textContent = s.name;
+    nameLink.onclick = () => { data.activeTab = 'player-' + s.id; saveData(); render(); };
+    tdName.appendChild(nameLink);
+    tr.appendChild(tdName);
+    const tdW = document.createElement('td'); tdW.textContent = s.wins;
+    const tdL = document.createElement('td'); tdL.textContent = s.losses;
+    const tdP = document.createElement('td'); tdP.textContent = s.pushes;
+    const tdNet = document.createElement('td');
+    tdNet.className = netClass;
+    tdNet.textContent = (s.net >= 0 ? '+' : '-') + '$' + Math.abs(s.net).toFixed(2);
+    tr.appendChild(tdW); tr.appendChild(tdL); tr.appendChild(tdP); tr.appendChild(tdNet);
+    tbody.appendChild(tr);
+  });
+  table.appendChild(tbody);
+  div.appendChild(table);
+
+  if (data.weeks.length) {
+    const chartWrap = document.createElement('div');
+    chartWrap.className = 'chart-wrap';
+    const canvas = document.createElement('canvas');
+    chartWrap.appendChild(canvas);
+    div.appendChild(chartWrap);
+    setTimeout(() => {
+      new Chart(canvas.getContext('2d'), {
+        type: 'bar',
+        data: {
+          labels: stats.map(s => s.name),
+          datasets: [{
+            label: 'Net $',
+            data: stats.map(s => s.net),
+            backgroundColor: stats.map(s => s.net >= 0 ? '#0f7a3d' : '#b6402f'),
+            borderRadius: 6
+          }]
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          plugins: { legend: { display: false } },
+          scales: { y: { beginAtZero: true } }
+        }
+      });
+    }, 0);
+  } else {
+    const empty = document.createElement('p');
+    empty.className = 'empty-state';
+    empty.textContent = 'No weeks yet — add Week 1 to get started.';
+    div.appendChild(empty);
+  }
+  return div;
+}
+
+function renderPlayer(playerId) {
+  const player = data.players.find(p => p.id === playerId);
+  const stats = computePlayerStats(playerId);
+  const container = document.createElement('div');
+
+  const header = document.createElement('div');
+  header.className = 'card';
+  const backBtn = document.createElement('button');
+  backBtn.className = 'secondary back-link';
+  backBtn.textContent = '← Back to Season Stats';
+  backBtn.onclick = () => { data.activeTab = 'stats'; saveData(); render(); };
+  header.appendChild(backBtn);
+
+  const streakLabel = stats.currentStreak > 0 ? 'W' + stats.currentStreak : (stats.currentStreak < 0 ? 'L' + Math.abs(stats.currentStreak) : '—');
+  const streakClass = stats.currentStreak > 0 ? 'streak-win' : (stats.currentStreak < 0 ? 'streak-loss' : '');
+  const titleRow = document.createElement('div');
+  titleRow.className = 'player-title-row';
+  titleRow.innerHTML = '<h2 class="player-title">' + player.name + '</h2>' +
+    '<div class="player-record">' + stats.wins + '-' + stats.losses + (stats.pushes ? '-' + stats.pushes : '') +
+    ' <span class="streak-badge ' + streakClass + '">Streak: ' + streakLabel + '</span></div>';
+  header.appendChild(titleRow);
+  container.appendChild(header);
+
+  const statsCard = document.createElement('div');
+  statsCard.className = 'card';
+  statsCard.innerHTML = '<h2>Overview</h2>';
+  const grid = document.createElement('div');
+  grid.className = 'stat-grid';
+  [
+    { label: 'Record', value: stats.wins + '-' + stats.losses + (stats.pushes ? '-' + stats.pushes : '') },
+    { label: 'Money Won', value: formatMoney(stats.moneyWon), cls: 'pos' },
+    { label: 'Money Paid Out', value: formatMoney(stats.moneyPaid), cls: 'neg' },
+    { label: 'Net', value: (stats.net >= 0 ? '+' : '-') + formatMoney(Math.abs(stats.net)), cls: stats.net >= 0 ? 'pos' : 'neg' },
+    { label: 'Current Streak', value: streakLabel },
+    { label: 'Longest Win Streak', value: stats.longestWin ? 'W' + stats.longestWin : '—' },
+    { label: 'Longest Losing Streak', value: stats.longestLoss ? 'L' + stats.longestLoss : '—' },
+    { label: 'Avg Draft Position', value: stats.avgDraftPosition != null ? stats.avgDraftPosition.toFixed(1) : '—' },
+    { label: 'Times Picked 1st', value: stats.firstPickCount }
+  ].forEach(t => {
+    const tile = document.createElement('div');
+    tile.className = 'stat-tile' + (t.cls ? ' ' + t.cls : '');
+    tile.innerHTML = '<div class="name">' + t.label + '</div><div class="amt">' + t.value + '</div>';
+    grid.appendChild(tile);
+  });
+  statsCard.appendChild(grid);
+  container.appendChild(statsCard);
+
+  const fdCard = document.createElement('div');
+  fdCard.className = 'card';
+  fdCard.innerHTML = '<h2>Favorite vs. Underdog</h2><p class="hint">Based on spread picks only (moneyline picks excluded).</p>';
+  const fdGrid = document.createElement('div');
+  fdGrid.className = 'stat-grid';
+  [
+    { label: 'Avg Line as Favorite (-)', value: stats.avgFavSpread != null ? stats.avgFavSpread.toFixed(1) : '—' },
+    { label: 'Record as Favorite', value: stats.favRecord.w + '-' + stats.favRecord.l },
+    { label: 'Avg Line as Underdog (+)', value: stats.avgDogSpread != null ? '+' + stats.avgDogSpread.toFixed(1) : '—' },
+    { label: 'Record as Underdog', value: stats.dogRecord.w + '-' + stats.dogRecord.l }
+  ].forEach(t => {
+    const tile = document.createElement('div');
+    tile.className = 'stat-tile';
+    tile.innerHTML = '<div class="name">' + t.label + '</div><div class="amt">' + t.value + '</div>';
+    fdGrid.appendChild(tile);
+  });
+  fdCard.appendChild(fdGrid);
+  container.appendChild(fdCard);
+
+  const confCard = document.createElement('div');
+  confCard.className = 'card';
+  confCard.innerHTML = '<h2>Conference Breakdown</h2><p class="hint">How picks split across conferences, and how they\'ve actually performed — not just which conference gets picked most.</p>';
+  if (stats.confList.length) {
+    const callouts = [];
+    if (stats.mostPickedConf) callouts.push('Picks most from <strong>' + stats.mostPickedConf.name + '</strong> (' + stats.mostPickedConf.count + 'x, ' + Math.round(stats.confList[0].share * 100) + '% of picks).');
+    if (stats.bestConf && stats.bestConf.wins + stats.bestConf.losses >= 2) callouts.push('Best record in <strong>' + stats.bestConf.conf + '</strong> (' + stats.bestConf.wins + '-' + stats.bestConf.losses + ', ' + Math.round(stats.bestConf.winPct * 100) + '%).');
+    if (stats.worstConf && stats.worstConf.wins + stats.worstConf.losses >= 2 && stats.worstConf.conf !== (stats.bestConf && stats.bestConf.conf)) callouts.push('Worst record in <strong>' + stats.worstConf.conf + '</strong> (' + stats.worstConf.wins + '-' + stats.worstConf.losses + ', ' + Math.round(stats.worstConf.winPct * 100) + '%).');
+    if (stats.mostPickedTeam) callouts.push('Most-picked team: <strong>' + stats.mostPickedTeam.name + '</strong> (' + stats.mostPickedTeam.count + 'x).');
+    if (callouts.length) {
+      const calloutEl = document.createElement('p');
+      calloutEl.className = 'hint';
+      calloutEl.innerHTML = callouts.join(' ');
+      confCard.appendChild(calloutEl);
+    }
+
+    const table = document.createElement('table');
+    table.className = 'stats-table';
+    table.innerHTML = '<thead><tr><th>Conference</th><th>Picks</th><th>Share</th><th>Record</th><th>Win %</th><th>Net $</th></tr></thead>';
+    const tbody = document.createElement('tbody');
+    stats.confList.forEach(c => {
+      const tr = document.createElement('tr');
+      const tdConf = document.createElement('td'); tdConf.textContent = c.conf;
+      const tdPicks = document.createElement('td'); tdPicks.textContent = c.picks;
+      const tdShare = document.createElement('td'); tdShare.textContent = Math.round(c.share * 100) + '%';
+      const tdRecord = document.createElement('td'); tdRecord.textContent = c.wins + '-' + c.losses + (c.pushes ? '-' + c.pushes : '');
+      const tdWinPct = document.createElement('td');
+      tdWinPct.textContent = c.winPct != null ? Math.round(c.winPct * 100) + '%' : '—';
+      const tdNet = document.createElement('td');
+      tdNet.className = c.net > 0 ? 'net-pos' : (c.net < 0 ? 'net-neg' : '');
+      tdNet.textContent = (c.net >= 0 ? '+' : '-') + '$' + Math.abs(c.net).toFixed(2);
+      tr.appendChild(tdConf); tr.appendChild(tdPicks); tr.appendChild(tdShare); tr.appendChild(tdRecord); tr.appendChild(tdWinPct); tr.appendChild(tdNet);
+      tbody.appendChild(tr);
+    });
+    table.appendChild(tbody);
+    confCard.appendChild(table);
+
+    const note = document.createElement('p');
+    note.className = 'empty-state';
+    note.style.marginTop = '10px';
+    note.textContent = 'Win % is only meaningful once a conference has a few picks behind it — small sample sizes early in the season will swing wildly.';
+    confCard.appendChild(note);
+  } else {
+    const empty = document.createElement('p');
+    empty.className = 'empty-state';
+    empty.textContent = 'No picks entered yet.';
+    confCard.appendChild(empty);
+  }
+  container.appendChild(confCard);
+
+  const histCard = document.createElement('div');
+  histCard.className = 'card';
+  histCard.innerHTML = '<h2>Pick History</h2>';
+  const playedHistory = stats.history.filter(h => hasGame(h.pick));
+  if (playedHistory.length) {
+    const table = document.createElement('table');
+    table.className = 'stats-table';
+    table.innerHTML = '<thead><tr><th>Week</th><th>Matchup</th><th>Pick</th><th>Type</th><th>Result</th><th>Money</th></tr></thead>';
+    const tbody = document.createElement('tbody');
+    playedHistory.forEach(h => {
+      const week = data.weeks.find(w => w.num === h.weekNum);
+      const payouts = calcPayouts(week);
+      let moneyText = '—';
+      if (h.result === 'win') moneyText = payouts.allWin ? '+' + formatMoney(payouts.receivePerWinner) : 'No payout';
+      else if (h.result === 'loss') moneyText = '-' + formatMoney(payouts.owePerLoser);
+      const resultClass = h.result === 'win' ? 'result-win' : (h.result === 'loss' ? 'result-loss' : (h.result === 'push' ? 'result-push' : ''));
+      const tr = document.createElement('tr');
+      const tdWeek = document.createElement('td'); tdWeek.textContent = 'Week ' + h.weekNum;
+      const tdMatchup = document.createElement('td'); tdMatchup.textContent = (h.pick.away || 'Away') + ' @ ' + (h.pick.home || 'Home');
+      const tdPick = document.createElement('td'); tdPick.textContent = pickSummary(h.pick);
+      const tdType = document.createElement('td'); tdType.textContent = h.pick.type === 'moneyline' ? 'Moneyline' : 'Spread';
+      const tdResult = document.createElement('td'); tdResult.className = resultClass; tdResult.textContent = h.result ? h.result[0].toUpperCase() + h.result.slice(1) : 'Pending';
+      const tdMoney = document.createElement('td'); tdMoney.textContent = moneyText;
+      tr.appendChild(tdWeek); tr.appendChild(tdMatchup); tr.appendChild(tdPick); tr.appendChild(tdType); tr.appendChild(tdResult); tr.appendChild(tdMoney);
+      tbody.appendChild(tr);
+    });
+    table.appendChild(tbody);
+    histCard.appendChild(table);
+  } else {
+    const empty = document.createElement('p');
+    empty.className = 'empty-state';
+    empty.textContent = 'No picks entered yet.';
+    histCard.appendChild(empty);
+  }
+  container.appendChild(histCard);
+
+  return container;
+}
+
+render();
+</script>
+</body>
+</html>
