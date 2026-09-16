@@ -1751,11 +1751,15 @@ function renderStats() {
     rankWrap.appendChild(rankHint);
     const rankList = document.createElement('ul');
     rankList.className = 'order-list';
+    let currentRank = 0;
     stats.forEach((s, idx) => {
+      // Standard competition ranking (1,2,2,4): players tied on net $ share a rank,
+      // and the next distinct net drops to idx+1 rather than incrementing by one.
+      if (idx === 0 || Math.abs(stats[idx - 1].net - s.net) >= 0.005) currentRank = idx + 1;
       const li = document.createElement('li');
       const badge = document.createElement('div');
-      badge.className = 'rank-badge' + (idx === 0 ? ' gold' : '');
-      badge.textContent = idx + 1;
+      badge.className = 'rank-badge' + (currentRank === 1 ? ' gold' : '');
+      badge.textContent = currentRank;
       const name = document.createElement('div');
       name.className = 'order-name';
       name.textContent = s.name;
