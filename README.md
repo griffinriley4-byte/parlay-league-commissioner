@@ -1,4 +1,4 @@
-# Riley Parley Pick'em
+# Riley Parlay Pick'em
 
 Commissioner dashboard for a 6-player weekly college football parlay pick'em league. Static HTML/JS front end backed by Supabase (Postgres), deployed on Vercel from this GitHub repo.
 

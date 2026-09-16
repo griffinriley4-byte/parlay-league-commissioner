@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<title>Riley Parley Pick'em</title>
+<title>Riley Parlay Pick'em</title>
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.5.0/dist/chart.umd.js" integrity="sha384-iU8HYtnGQ8Cy4zl7gbNMOhsDTTKX02BTXptVP/vqAWIaTfM7isw76iyZCsjL2eVi" crossorigin="anonymous"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
 <script src="config.js"></script>
@@ -381,7 +381,7 @@
 <body>
 <div class="wrap">
   <header class="top">
-    <h1>🏈 Riley Parley Pick'em — Commissioner Desk</h1>
+    <h1>🏈 Riley Parlay Pick'em — Commissioner Desk</h1>
     <p>Griffin's 6-player college football regular-season pick league. Claude runs the desk: picking order, watch cards, and payouts.</p>
     <div class="badge-row">
       <span class="badge">College Football · Regular Season</span>
@@ -828,7 +828,7 @@ function buildWatchCardPdf(week, ps) {
 
   // Header banner
   rect(margin, 40, contentW, 60, darkGreen);
-  text(margin + 16, 40 + 24, "RILEY PARLEY PICK'EM", 11, true, white, 'left');
+  text(margin + 16, 40 + 24, "RILEY PARLAY PICK'EM", 11, true, white, 'left');
   text(margin + contentW - 16, 40 + 24, 'WEEK ' + week.num, 12, true, white, 'right');
   text(margin + 16, 40 + 44,
     week.order.length + '-TEAM PARLAY' + (!ps.complete ? '  (' + ps.legsEntered + '/' + ps.totalLegs + ' LEGS IN)' : ''),
@@ -946,7 +946,7 @@ function buildResultsPdf(week) {
 
   // Header banner
   rect(margin, 40, contentW, 60, darkGreen);
-  text(margin + 16, 40 + 24, "RILEY PARLEY PICK'EM", 11, true, white, 'left');
+  text(margin + 16, 40 + 24, "RILEY PARLAY PICK'EM", 11, true, white, 'left');
   text(margin + contentW - 16, 40 + 24, 'WEEK ' + week.num, 12, true, white, 'right');
   text(margin + 16, 40 + 44, 'RESULTS & PAYOUTS', 9, false, cream, 'left');
 
@@ -1569,7 +1569,7 @@ function renderWeek(week) {
     wc.className = 'watch-card';
     wc.innerHTML =
       '<div class="ticket-top">' +
-        '<div class="ticket-brand">RILEY PARLEY PICK\'EM</div>' +
+        '<div class="ticket-brand">RILEY PARLAY PICK\'EM</div>' +
         '<div class="ticket-week">WEEK ' + week.num + '</div>' +
       '</div>' +
       '<div class="ticket-sub">' + week.order.length + '-Team Parlay' + (!ps.complete ? ' <span class="incomplete-tag">' + ps.legsEntered + '/' + ps.totalLegs + ' LEGS IN</span>' : '') + '</div>' +

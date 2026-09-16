@@ -1,4 +1,4 @@
--- Riley Parley Pick'em — Supabase schema
+-- Riley Parlay Pick'em — Supabase schema
 -- Run this once in your Supabase project's SQL Editor (Project > SQL Editor > New query).
 
 -- One row holds the whole league's shared state: the roster and every week's picking
