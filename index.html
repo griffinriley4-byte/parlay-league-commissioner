@@ -1,16 +1,11 @@
 <!DOCTYPE html>
-<script type="application/json" id="cowork-artifact-meta">
-{
-  "name": "Parlay League Commissioner",
-  "schemaVersion": 1,
-  "description": "Commissioner dashboard for Griffin's 6-player weekly parlay pick'em league: manage roster, auto-generate picking order (winners-first from prior week), enter weekly spread/moneyline picks, auto-build a Parlay Watch Card, mark win/loss/push results, calculate the $60 pot payout (split among losers), and track season-long standings. All data persists in the browser (localStorage) — no external connectors needed."
-}
-</script>
 <html lang="en">
 <head>
 <meta charset="UTF-8">
 <title>Riley Parley Pick'em</title>
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.5.0/dist/chart.umd.js" integrity="sha384-iU8HYtnGQ8Cy4zl7gbNMOhsDTTKX02BTXptVP/vqAWIaTfM7isw76iyZCsjL2eVi" crossorigin="anonymous"></script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
+<script src="config.js"></script>
 <style>
   :root {
     color-scheme: light;
@@ -447,36 +442,117 @@ function shuffledIds(players) {
   return ids;
 }
 
-function loadData() {
-  const raw = localStorage.getItem(STORE_KEY);
-  let d = null;
-  if (raw) { try { d = JSON.parse(raw); } catch(e) {} }
-  if (!d) {
-    d = {
-      players: [1,2,3,4,5,6].map(n => ({ id: 'p'+n, name: 'Player '+n })),
-      weeks: [],
-      activeTab: 'roster'
-    };
-  }
-  // Ensure every regular-season week has a tab, without disturbing existing weeks.
+// Supabase is optional: when config.js has real project credentials (and the supabase-js
+// CDN script loaded), the league's players/weeks are stored there and shared live across
+// every device. Without it, everything falls back to this browser's localStorage only,
+// exactly like before.
+const SUPABASE_READY = !!(window.SUPABASE_URL && window.SUPABASE_ANON_KEY &&
+  window.SUPABASE_URL.indexOf('YOUR_') === -1 && window.supabase);
+const supabaseClient = SUPABASE_READY
+  ? window.supabase.createClient(window.SUPABASE_URL, window.SUPABASE_ANON_KEY)
+  : null;
+
+// activeTab is which tab THIS browser has open — a per-viewer UI preference, never part
+// of the shared league_state row, so switching tabs on one device never flips it for
+// everyone else's.
+const ACTIVE_TAB_KEY = 'parlayActiveTab_v1';
+function loadActiveTab() {
+  try { return localStorage.getItem(ACTIVE_TAB_KEY) || 'roster'; } catch (e) { return 'roster'; }
+}
+function saveActiveTab(tab) {
+  try { localStorage.setItem(ACTIVE_TAB_KEY, tab); } catch (e) {}
+}
+
+function defaultLeagueData() {
+  return {
+    players: [1,2,3,4,5,6].map(n => ({ id: 'p'+n, name: 'Player '+n })),
+    weeks: []
+  };
+}
+
+// Ensure every regular-season week has a tab, without disturbing existing weeks, and trim
+// trailing untouched weeks beyond the regular season (e.g. after shortening it) — never
+// removes a week that already has an order, picks, or results.
+function ensureWeeks(d) {
   for (let n = d.weeks.length + 1; n <= REGULAR_SEASON_WEEKS; n++) {
     d.weeks.push({ num: n, order: null, picks: {}, results: {}, finalized: false, combinedOdds: '', toWin: '' });
   }
-  // Trim trailing untouched weeks beyond the regular season (e.g. after shortening it) —
-  // never removes a week that already has an order, picks, or results.
   while (d.weeks.length > REGULAR_SEASON_WEEKS) {
     const last = d.weeks[d.weeks.length - 1];
     const untouched = !last.order && Object.keys(last.picks || {}).length === 0 && Object.keys(last.results || {}).length === 0;
     if (untouched) d.weeks.pop(); else break;
   }
-  // Persist immediately so newly topped-up weeks survive a refresh even before the
-  // user makes any changes.
+}
+
+function loadLocalFallback() {
+  const raw = localStorage.getItem(STORE_KEY);
+  let d = null;
+  if (raw) { try { d = JSON.parse(raw); } catch(e) {} }
+  if (!d) d = defaultLeagueData();
+  ensureWeeks(d);
   localStorage.setItem(STORE_KEY, JSON.stringify(d));
   return d;
 }
-function saveData() { localStorage.setItem(STORE_KEY, JSON.stringify(data)); }
 
-let data = loadData();
+async function loadData() {
+  let d;
+  if (supabaseClient) {
+    try {
+      const { data: row, error } = await supabaseClient.from('league_state').select('data').eq('id', 1).single();
+      if (error) throw error;
+      d = (row && row.data) || defaultLeagueData();
+      ensureWeeks(d);
+    } catch (e) {
+      console.error('Loading from Supabase failed, using this browser\'s local copy instead:', e);
+      d = loadLocalFallback();
+    }
+  } else {
+    d = loadLocalFallback();
+  }
+  d.activeTab = loadActiveTab();
+  return d;
+}
+
+let saveTimer = null;
+function saveData() {
+  saveActiveTab(data.activeTab);
+  if (!supabaseClient) {
+    localStorage.setItem(STORE_KEY, JSON.stringify(data));
+    return;
+  }
+  // Debounce so a burst of keystrokes (typing a name, a spread) becomes one write.
+  clearTimeout(saveTimer);
+  saveTimer = setTimeout(() => {
+    supabaseClient
+      .from('league_state')
+      .update({ data: { players: data.players, weeks: data.weeks }, updated_at: new Date().toISOString() })
+      .eq('id', 1)
+      .then(({ error }) => { if (error) console.error('Saving to Supabase failed:', error); });
+  }, 400);
+}
+
+// Live sync: when another device updates the shared league state, pull it in and
+// re-render — unless this browser is mid-edit in a field, so a stray sync can't yank
+// focus or overwrite a keystroke in progress. That edit's own save reconciles moments later.
+function attachRealtime() {
+  if (!supabaseClient) return;
+  supabaseClient
+    .channel('league_state_changes')
+    .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'league_state', filter: 'id=eq.1' }, (payload) => {
+      const incoming = payload.new && payload.new.data;
+      if (!incoming) return;
+      const active = document.activeElement;
+      const isEditing = active && ['INPUT', 'SELECT', 'TEXTAREA'].includes(active.tagName);
+      if (isEditing) return;
+      data.players = incoming.players;
+      data.weeks = incoming.weeks;
+      ensureWeeks(data);
+      render();
+    })
+    .subscribe();
+}
+
+let data = null;
 
 function playerName(id) {
   const p = data.players.find(p => p.id === id);
@@ -1855,7 +1931,11 @@ function renderPlayer(playerId) {
   return container;
 }
 
-render();
+(async function init() {
+  data = await loadData();
+  render();
+  attachRealtime();
+})();
 </script>
 </body>
 </html>
