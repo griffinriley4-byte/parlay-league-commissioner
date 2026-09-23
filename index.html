@@ -395,7 +395,7 @@
       <ol>
         <li><b>Roster</b> — set the 6 player names once, edit anytime.</li>
         <li><b>Week 1</b> picking order is randomized. Every week after, order is: winners first (in their prior order), then losers (in their prior order).</li>
-        <li>Each player picks one spread or moneyline per week, entered in their slot.</li>
+        <li>Each player picks one spread, moneyline, or over/under per week, entered in their slot.</li>
         <li>The <b>Parlay Watch Card</b> auto-builds from the entered picks, in picking order.</li>
         <li>After games finish, mark each player Win / Loss / Push. The pot is $60, <b>divided evenly among that week's losers</b> — that's what each loser owes. <b>Winners only get paid if it's a clean sweep</b> — every single pick wins that week — in which case the $60 pot splits evenly among everyone. Any other result (a mix of wins/losses, or an all-loss week), winners get nothing.</li>
         <li><b>Season Stats</b> tracks cumulative record and running balance for every player.</li>
@@ -638,7 +638,7 @@ const PICK_FIELDS = [
   { key: 'home', label: 'Home Team', type: 'text', placeholder: 'e.g. Alabama' },
   { key: 'gameTime', label: 'Game Time', type: 'text', placeholder: 'Sat 3:30 PM ET' },
   { key: 'tvChannel', label: 'TV Channel', type: 'text', placeholder: 'ESPN' },
-  { key: 'type', label: 'Bet Type', type: 'select', options: [['spread','Spread'],['moneyline','Moneyline']] },
+  { key: 'type', label: 'Bet Type', type: 'select', options: [['spread','Spread'],['moneyline','Moneyline'],['total','Over/Under']] },
   { key: 'line', label: 'Spread / Odds', type: 'text', placeholder: '-3.5' },
   { key: 'pickedSide', label: 'Who Has It', type: 'select', options: [['away','Away Team'],['home','Home Team']] }
 ];
@@ -845,7 +845,7 @@ function buildWatchCardPdf(week, ps) {
       text(margin + 26, rowTop + 24, (pick.away || 'Away') + ' @ ' + (pick.home || 'Home'), 12, true, black, 'left');
       text(margin + 26, rowTop + 36, (pick.gameTime || 'Time TBD') + (pick.tvChannel ? '  -  ' + pick.tvChannel : ''), 8.5, false, gray, 'left');
       text(margin + 26, rowTop + 49, pickSummary(pick), 11, true, green, 'left');
-      text(margin + contentW - 2, rowTop + 24, (pick.type === 'moneyline' ? 'MONEYLINE' : 'SPREAD'), 8, true, gray, 'right');
+      text(margin + contentW - 2, rowTop + 24, (pick.type === 'moneyline' ? 'MONEYLINE' : pick.type === 'total' ? 'OVER/UNDER' : 'SPREAD'), 8, true, gray, 'right');
     } else {
       text(margin + 26, rowTop + 24, 'No pick entered yet', 11, false, gray, 'left');
     }
@@ -1151,6 +1151,9 @@ function teamConference(name) {
 
 function pickSummary(pick) {
   if (!hasGame(pick)) return '—';
+  if (pick.type === 'total') {
+    return (pick.pickedSide === 'under' ? 'Under' : 'Over') + (pick.line ? ' ' + pick.line : '');
+  }
   return pickedTeamName(pick) + (pick.line ? ' ' + pick.line : '') + (pick.type === 'moneyline' ? ' (ML)' : '');
 }
 
@@ -1211,7 +1214,8 @@ function computePlayerStats(playerId) {
     if (h.result === 'win') moneyWon += payouts.receivePerWinner;
     else if (h.result === 'loss') moneyPaid += payouts.owePerLoser;
 
-    const team = pickedTeamName(h.pick);
+    // An over/under isn't a bet on either team, so it doesn't count toward team/conference stats.
+    const team = h.pick.type === 'total' ? '' : pickedTeamName(h.pick);
     if (team) {
       teamCounts[team] = (teamCounts[team] || 0) + 1;
       const conf = teamConference(team);
@@ -1223,7 +1227,7 @@ function computePlayerStats(playerId) {
       else if (h.result === 'push') { cs.pushes++; }
     }
 
-    if (h.pick.type !== 'moneyline') {
+    if (h.pick.type === 'spread') {
       const lineVal = parseFloat(h.pick.line);
       if (!isNaN(lineVal) && lineVal !== 0) {
         if (lineVal < 0) {
@@ -1455,7 +1459,7 @@ function renderWeek(week) {
   if (week.order) {
     const picksCard = document.createElement('div');
     picksCard.className = 'card';
-    picksCard.innerHTML = '<h2>Weekly Picks</h2><p class="hint">Enter each player\'s game and spread/moneyline pick, in picking order.</p>';
+    picksCard.innerHTML = '<h2>Weekly Picks</h2><p class="hint">Enter each player\'s game and spread/moneyline/over-under pick, in picking order.</p>';
     week.order.forEach((id, idx) => {
       const pick = week.picks[id] || blankPick();
       const entry = document.createElement('div');
@@ -1467,25 +1471,47 @@ function renderWeek(week) {
 
       const row = document.createElement('div');
       row.className = 'field-row';
+      const isTotal = pick.type === 'total';
       PICK_FIELDS.forEach(field => {
         const cell = document.createElement('div');
         const label = document.createElement('label');
-        label.textContent = field.label;
+        // "Who Has It" / "Spread / Odds" only make sense for a team-side bet — an
+        // over/under is on the combined score, not a team, so swap in Over/Under wording.
+        label.textContent = field.key === 'pickedSide' ? (isTotal ? 'Over or Under' : field.label)
+          : field.key === 'line' ? (isTotal ? 'Total' : field.label)
+          : field.label;
         cell.appendChild(label);
         if (field.type === 'select') {
+          const options = field.key === 'pickedSide'
+            ? (isTotal ? [['over','Over'],['under','Under']] : [['away','Away Team'],['home','Home Team']])
+            : field.options;
           const sel = document.createElement('select');
-          field.options.forEach(([v, optLabel]) => {
+          options.forEach(([v, optLabel]) => {
             const opt = document.createElement('option');
             opt.value = v; opt.textContent = optLabel;
-            if ((pick[field.key] || field.options[0][0]) === v) opt.selected = true;
+            if ((pick[field.key] || options[0][0]) === v) opt.selected = true;
             sel.appendChild(opt);
           });
-          sel.onchange = (e) => { setPickField(week, id, field.key, e.target.value); render(); };
+          sel.onchange = (e) => {
+            const newVal = e.target.value;
+            setPickField(week, id, field.key, newVal);
+            // Keep pickedSide meaningful across a bet-type switch: reset to a sensible
+            // default instead of leaving a stale 'away'/'home' vs 'over'/'under' value.
+            if (field.key === 'type') {
+              const curSide = week.picks[id].pickedSide;
+              if (newVal === 'total' && curSide !== 'over' && curSide !== 'under') {
+                setPickField(week, id, 'pickedSide', 'over');
+              } else if (newVal !== 'total' && (curSide === 'over' || curSide === 'under')) {
+                setPickField(week, id, 'pickedSide', 'home');
+              }
+            }
+            render();
+          };
           cell.appendChild(sel);
         } else {
           const inp = document.createElement('input');
           inp.type = 'text';
-          inp.placeholder = field.placeholder || '';
+          inp.placeholder = field.key === 'line' && isTotal ? 'e.g. 54.5' : (field.placeholder || '');
           inp.value = pick[field.key] || '';
           inp.oninput = (e) => setPickField(week, id, field.key, e.target.value);
           inp.onblur = render;
@@ -1582,19 +1608,21 @@ function renderWeek(week) {
       } else {
         const away = pick.away || 'Away';
         const home = pick.home || 'Home';
-        const pickedAway = pick.pickedSide === 'away';
+        // An over/under isn't a bet on either team, so neither box gets the "picked" highlight.
+        const pickedAway = pick.type !== 'total' && pick.pickedSide === 'away';
+        const pickedHome = pick.type !== 'total' && pick.pickedSide !== 'away';
         row.innerHTML = '<div class="slip-rank">' + (draftIdx+1) + '</div>' +
           '<div class="slip-body">' +
             '<div class="slip-player">' + playerName(id) + '</div>' +
             '<div class="matchup">' +
               '<div class="team' + (pickedAway ? ' picked' : '') + '"><span class="logo" style="background:' + teamColor(away) + '">' + teamAbbr(away) + '</span><span class="tname">' + away + '</span></div>' +
               '<span class="at">@</span>' +
-              '<div class="team' + (!pickedAway ? ' picked' : '') + '"><span class="logo" style="background:' + teamColor(home) + '">' + teamAbbr(home) + '</span><span class="tname">' + home + '</span></div>' +
+              '<div class="team' + (pickedHome ? ' picked' : '') + '"><span class="logo" style="background:' + teamColor(home) + '">' + teamAbbr(home) + '</span><span class="tname">' + home + '</span></div>' +
             '</div>' +
             '<div class="game-meta">' + (pick.gameTime || 'Time TBD') + (pick.tvChannel ? ' · ' + pick.tvChannel : '') + '</div>' +
             '<div class="slip-pick">' + pickSummary(pick) + '</div>' +
           '</div>' +
-          '<div class="slip-type">' + (pick.type === 'moneyline' ? 'Moneyline' : 'Spread') + '</div>';
+          '<div class="slip-type">' + (pick.type === 'moneyline' ? 'Moneyline' : pick.type === 'total' ? 'Over/Under' : 'Spread') + '</div>';
       }
       slip.appendChild(row);
     });
@@ -1833,7 +1861,7 @@ function renderPlayer(playerId) {
 
   const fdCard = document.createElement('div');
   fdCard.className = 'card';
-  fdCard.innerHTML = '<h2>Favorite vs. Underdog</h2><p class="hint">Based on spread picks only (moneyline picks excluded).</p>';
+  fdCard.innerHTML = '<h2>Favorite vs. Underdog</h2><p class="hint">Based on spread picks only (moneyline and over/under picks excluded).</p>';
   const fdGrid = document.createElement('div');
   fdGrid.className = 'stat-grid';
   [
@@ -1920,7 +1948,7 @@ function renderPlayer(playerId) {
       const tdWeek = document.createElement('td'); tdWeek.textContent = 'Week ' + h.weekNum;
       const tdMatchup = document.createElement('td'); tdMatchup.textContent = (h.pick.away || 'Away') + ' @ ' + (h.pick.home || 'Home');
       const tdPick = document.createElement('td'); tdPick.textContent = pickSummary(h.pick);
-      const tdType = document.createElement('td'); tdType.textContent = h.pick.type === 'moneyline' ? 'Moneyline' : 'Spread';
+      const tdType = document.createElement('td'); tdType.textContent = h.pick.type === 'moneyline' ? 'Moneyline' : h.pick.type === 'total' ? 'Over/Under' : 'Spread';
       const tdResult = document.createElement('td'); tdResult.className = resultClass; tdResult.textContent = h.result ? h.result[0].toUpperCase() + h.result.slice(1) : 'Pending';
       const tdMoney = document.createElement('td'); tdMoney.textContent = moneyText;
       tr.appendChild(tdWeek); tr.appendChild(tdMatchup); tr.appendChild(tdPick); tr.appendChild(tdType); tr.appendChild(tdResult); tr.appendChild(tdMoney);
